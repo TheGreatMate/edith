@@ -3,42 +3,52 @@
 <h1 align="center">EDITH</h1>
 <p align="center"><b>Every Device In The House</b> — a homelab dashboard</p>
 
-Live status for an Unraid server and/or a HexOS / TrueNAS SCALE server, plus an Apps board that health-checks every tracked port every 30s. Zero dependencies — one Node file and one HTML page.
+Live status for your Unraid and HexOS / TrueNAS SCALE servers, plus an Apps board that health-checks every tracked port every 30s. Zero dependencies — one Node file and one HTML page.
 
-## Deploy on HexOS / TrueNAS (Docker)
+## Install (Docker)
 
-1. Create a dataset for the dashboard's data (e.g. `apps/edith`) and note its path (`/mnt/<pool>/apps/edith`).
+**HexOS / TrueNAS SCALE**
+
+1. Create a dataset for EDITH's data (e.g. `apps/edith`) and note its path (`/mnt/<pool>/apps/edith`).
 2. TrueNAS UI → **Apps** → **Discover Apps** → **⋮** → **Install via YAML**.
-3. Paste [`docker-compose.yaml`](docker-compose.yaml), set the volume path from step 1, fill in your server names, IPs and API keys, and save.
-4. Open `http://<server>:7575`.
+3. Paste [`docker-compose.yaml`](docker-compose.yaml), set the volume path from step 1, and save.
 
-The image `ghcr.io/thegreatmate/edith:latest` is rebuilt on every push to `main`.
-To update, redeploy the app in TrueNAS (it pulls `latest` on start).
+**Anywhere else:** `docker compose up -d` with the same file.
 
-## Run locally
+Then open `http://<host>:7575`. On first start EDITH asks for your servers — give each one a name and its IP address or hostname, and it works out whether it's running Unraid or TrueNAS (HexOS included). Add more with **+ Add another server**, or later from **⚙ Servers** or the **+ Add server** card.
 
-Double-click `start.cmd`, or `node server.js` (Node 18+). Config goes in `.env` (see `.env.example`).
+The image `ghcr.io/thegreatmate/edith:latest` is rebuilt on every push to `main`. To update, redeploy the app (it pulls `latest` on start).
 
-## Configuration
+## API keys (optional)
 
-| Variable | Purpose |
-| --- | --- |
-| `UNRAID_NAME`, `UNRAID_HOST` | Display name and IP of your Unraid server (leave host empty to hide it) |
-| `UNRAID_URL` | Web UI URL if it isn't `http://UNRAID_HOST` |
-| `UNRAID_API_KEY` | Unraid → Settings → Management Access → API Keys (*viewer* role) |
-| `TRUENAS_NAME`, `TRUENAS_HOST` | Display name and IP of your HexOS / TrueNAS SCALE server (HexOS is auto-detected) |
-| `TRUENAS_API_KEY` | TrueNAS UI → user icon → API Keys → Add |
-| `PLEX_URL`, `PLEX_TOKEN` | Optional — shows "Now playing" |
-| `CHECK_INTERVAL` | Seconds between app health checks (default 30) |
-| `DATA_DIR` | Where `apps.json` is stored (default `./data`) |
+Without a key, a server card shows whether it's reachable. Add one in **⚙ Servers** for CPU, memory, disk, container and VM stats:
 
-Without API keys the server cards show reachability only; the Apps board works either way.
+- **Unraid:** Settings → Management Access → API Keys → create a key with the *viewer* role (Unraid 7.2+, or the Unraid Connect plugin).
+- **TrueNAS / HexOS:** `https://<server>/ui/` → user icon → API Keys → Add.
+
+Keys are checked when you save them, stored only in `data/config.json` on the machine running EDITH, and never sent back to the browser. EDITH has no login of its own, so run it on your LAN only.
 
 ## Apps
 
-- **Themes:** dark, light and retro (pixel fonts, chunky borders, block meters). Defaults to your system setting.
-- **Favorites** is the default view. Tap ☆ on any app to pin it; **View all** shows everything.
 - **Scan for apps** checks every TCP port on a server, names what it finds (page title, headers, well-known ports) and lets you **Add** or **Ignore** each one.
+- **Favorites** is the default view. Tap ☆ on any app to pin it; **View all** shows everything.
 - **Edit** shows × buttons to stop tracking an app.
-- Icons come from [dashboard-icons](https://github.com/homarr-labs/dashboard-icons) by name; edit `icon` in `data/apps.json` to change one.
-- The app list starts empty — run a scan to fill it. Everything is saved in `data/apps.json`.
+- Icons come from [dashboard-icons](https://github.com/homarr-labs/dashboard-icons) by name; edit `icon` in `data/config.json` to change one.
+
+## Themes
+
+Dark, light and retro (pixel fonts, chunky borders, block meters). Defaults to your system setting.
+
+## Settings
+
+| Variable | Purpose |
+| --- | --- |
+| `PORT` | Web port (default 7575) |
+| `CHECK_INTERVAL` | Seconds between app health checks (default 30) |
+| `PLEX_URL`, `PLEX_TOKEN` | Optional — shows "Now playing" |
+| `DATA_DIR` | Where `config.json` is stored (default `./data`) |
+| `UNRAID_*`, `TRUENAS_*` | Advanced — preconfigure servers instead of using the setup screen (see `.env.example`) |
+
+## Run locally
+
+Double-click `start.cmd`, or `node server.js` (Node 18+).

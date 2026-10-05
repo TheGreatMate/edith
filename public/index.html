@@ -30,6 +30,8 @@
     --bad: #ff5d6c;
     --srv1: #ff9a3c;
     --srv2: #a78bfa;
+    --srv3: #3ddc97;
+    --srv4: #5ab0ff;
     --mono: 'JetBrains Mono', ui-monospace, monospace;
     --sans: Inter, system-ui, sans-serif;
     --display: Inter, system-ui, sans-serif;
@@ -45,7 +47,7 @@
     --line: #dfe3ea; --line-soft: #e9ecf1;
     --text: #121821; --muted: #5a6574; --faint: #98a2b0;
     --ok: #0f9d63; --warn: #c27400; --bad: #d92f45;
-    --srv1: #e2700a; --srv2: #7357e0;
+    --srv1: #e2700a; --srv2: #7357e0; --srv3: #0f9d63; --srv4: #1f78d1;
     --tint: #0000000a; --tint-2: #0000000d; --tint-3: #00000014;
     --glow-a: #ff9a3c22; --glow-b: #a78bfa26;
     --star: #e0a100;
@@ -58,7 +60,7 @@
     --line: #4a2a80; --line-soft: #2e1656;
     --text: #f4f1ff; --muted: #b3a6e0; --faint: #7a6aae;
     --ok: #39ff14; --warn: #ffe600; --bad: #ff2a6d;
-    --srv1: #ff9e00; --srv2: #05d9e8;
+    --srv1: #ff9e00; --srv2: #05d9e8; --srv3: #39ff14; --srv4: #ff2a6d;
     --mono: 'Pixelify Sans', monospace; --sans: 'Pixelify Sans', monospace; --display: 'Press Start 2P', monospace;
     --tint: #ffffff06; --tint-2: #ffffff0c; --tint-3: #ffffff18;
     --glow-a: #ff2a6d22; --glow-b: #05d9e822;
@@ -120,7 +122,6 @@
 
   .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 620px), 1fr)); gap: 20px; }
   .server { --accent: var(--srv1); position: relative; border: 1px solid var(--line); background: var(--panel); border-radius: 18px; padding: 22px; backdrop-filter: blur(10px); overflow: hidden; }
-  .server.truenas { --accent: var(--srv2); }
   .server::before { content: ''; position: absolute; inset: 0 0 auto 0; height: 2px; background: linear-gradient(90deg, transparent, var(--accent), transparent); opacity: .8; }
   .server.offline { --accent: var(--bad); }
 
@@ -201,7 +202,6 @@
 
   .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px; margin-top: 16px; }
   .tile { --accent: var(--srv1); position: relative; display: flex; flex-direction: column; gap: 10px; padding: 12px 14px; border: 1px solid var(--line-soft); border-radius: 14px; background: var(--tint); color: var(--text); text-decoration: none; transition: border-color .15s, transform .15s, background .15s; min-width: 0; }
-  .tile.truenas { --accent: var(--srv2); }
   a.tile:hover { border-color: color-mix(in srgb, var(--accent) 60%, transparent); background: color-mix(in srgb, var(--accent) 6%, transparent); transform: translateY(-1px); }
   .tile.down { border-color: color-mix(in srgb, var(--bad) 35%, transparent); background: color-mix(in srgb, var(--bad) 6%, transparent); }
   .tile .top { display: flex; align-items: center; gap: 11px; min-width: 0; }
@@ -250,6 +250,42 @@
   .result .tag { font: 600 10px var(--sans); text-transform: uppercase; letter-spacing: .08em; color: var(--muted); width: 64px; text-align: right; flex: none; }
   details summary { cursor: pointer; color: var(--muted); font-size: 12.5px; margin-top: 14px; }
 
+  /* --- servers: setup screen, dialog, add card --- */
+  .setup-screen { max-width: 760px; margin: 4vh auto 0; }
+  .setup-hero { text-align: center; margin-bottom: 26px; }
+  .setup-hero img { width: 72px; height: 72px; border-radius: 18px; }
+  .setup-hero h1 { margin: 14px 0 6px; font: 700 28px/1.2 var(--display); letter-spacing: -.01em; }
+  .setup-hero p { margin: 0; color: var(--muted); font-size: 14.5px; }
+  [data-theme="retro"] .setup-hero h1 { font-size: 20px; }
+  .srv-rows { display: grid; gap: 12px; }
+  .srv-row { --accent: var(--srv1); border: 1px solid var(--line); background: var(--panel); border-radius: 16px; padding: 16px 16px 16px 20px; display: grid; gap: 12px; position: relative; }
+  .srv-row::before { content: ''; position: absolute; left: 0; top: 14px; bottom: 14px; width: 3px; border-radius: 3px; background: var(--accent); }
+  .srv-fields { display: grid; grid-template-columns: 1fr 1.3fr 1fr; gap: 10px; }
+  @media (max-width: 640px) { .srv-fields { grid-template-columns: 1fr; } }
+  .srv-row label { display: grid; gap: 5px; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+  .srv-row input, .srv-row select { background: var(--tint-2); border: 1px solid var(--line); color: var(--text); border-radius: 9px; padding: 9px 11px; font: 14px var(--sans); text-transform: none; letter-spacing: 0; width: 100%; min-width: 0; }
+  .srv-row input:focus, .srv-row select:focus { outline: none; border-color: var(--accent); }
+  .srv-row select option { background: var(--panel-solid); }
+  .srv-status { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); min-height: 20px; flex-wrap: wrap; }
+  .srv-status .ok { color: var(--ok); } .srv-status .bad { color: var(--bad); } .srv-status .warn { color: var(--warn); }
+  .srv-status code { font: 12px var(--mono); color: var(--muted); }
+  .srv-row details summary { margin: 0; font-size: 13px; }
+  .srv-more { display: grid; gap: 10px; margin-top: 10px; }
+  .srv-more .hint { font-size: 12.5px; color: var(--muted); line-height: 1.5; }
+  .srv-more .hint a { color: var(--accent); }
+  .srv-foot { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .srv-foot .spacer { flex: 1; }
+  .btn.danger { color: var(--bad); }
+  .setup-actions { display: flex; justify-content: space-between; gap: 10px; margin-top: 16px; flex-wrap: wrap; }
+  .setup-actions .btn { padding: 10px 16px; font-size: 14px; }
+  .form-error { color: var(--bad); font-size: 13px; margin-top: 10px; min-height: 18px; }
+  .add-srv { display: flex; align-items: center; justify-content: center; gap: 10px; min-height: 120px; border: 1px dashed var(--line); border-radius: 18px; background: none; color: var(--muted); font: 500 15px var(--sans); cursor: pointer; transition: .15s; }
+  .add-srv:hover { color: var(--text); border-color: var(--muted); background: var(--tint); }
+  .add-srv b { font-size: 22px; font-weight: 400; }
+  #srvDlg { width: min(820px, calc(100vw - 32px)); }
+  #srvDlg .srv-row { background: var(--tint); }
+  [hidden] { display: none !important; }
+
   footer { margin-top: 28px; color: var(--faint); font-size: 12px; display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
   footer button { background: none; border: 1px solid var(--line); color: var(--muted); border-radius: 8px; padding: 5px 10px; font: inherit; cursor: pointer; }
   footer button:hover { color: var(--text); }
@@ -264,12 +300,28 @@
       <div class="clock" id="clock">--:--<small></small></div>
     </div>
     <div class="summary"><span id="summary" class="summary"></span>
+      <button class="btn" id="serversBtn" title="Add, edit or remove servers">⚙ Servers</button>
       <div class="seg theme-seg" id="themeSeg" title="Theme">
         <button data-t="dark" title="Dark">☾ Dark</button><button data-t="light" title="Light">☀ Light</button><button data-t="retro" title="Retro">👾 Retro</button>
       </div>
     </div>
   </header>
 
+  <section class="setup-screen" id="setup" hidden>
+    <div class="setup-hero">
+      <img src="icon.svg" alt="">
+      <h1>Welcome to EDITH</h1>
+      <p>Tell me where your servers are. I'll work out whether each one runs Unraid or TrueNAS.</p>
+    </div>
+    <div class="srv-rows" id="setupRows"></div>
+    <div class="form-error" id="setupError"></div>
+    <div class="setup-actions">
+      <button class="btn" id="setupAdd">+ Add another server</button>
+      <button class="btn primary" id="setupDone">Continue →</button>
+    </div>
+  </section>
+
+  <div id="dash">
   <section class="apps-panel" id="appsPanel">
     <div class="toolbar">
       <h2>Apps</h2><span class="count" id="appCount"></span>
@@ -283,7 +335,17 @@
     <div class="tiles" id="tiles"></div>
   </section>
 
-  <main class="grid" id="grid"></main>
+  <main class="grid"><div id="grid" style="display:contents"></div><button class="add-srv" data-open-servers="new"><b>+</b> Add server</button></main>
+  </div>
+
+  <dialog id="srvDlg">
+    <div class="dlg-h">
+      <h2>Servers</h2>
+      <button class="btn" id="srvAdd">+ Add server</button>
+      <button class="btn" id="srvClose">✕</button>
+    </div>
+    <div class="dlg-b"><div class="srv-rows" id="srvRows"></div></div>
+  </dialog>
 
   <dialog id="scanDlg">
     <div class="dlg-h">
@@ -362,19 +424,21 @@ function diskCard(d) {
   </div>`;
 }
 
-function setupCard(s) {
-  if (s.id === 'unraid') return `<div class="setup">
-    <b>Connect the Unraid API for live stats.</b> On ${esc(s.name)} go to <b>Settings → Management Access → API Keys</b>
-    (Unraid 7.2+, or install the <i>Unraid Connect</i> plugin on older versions), create a key with the <b>viewer</b> role,
-    then put it in <code>server-dashboard/.env</code> as <code>UNRAID_API_KEY=…</code> (or the container's environment) and restart.</div>`;
-  return `<div class="setup">
-    <b>Connect the TrueNAS API for live stats.</b> ${s.os === 'HexOS' ? 'HexOS runs on TrueNAS — open' : 'Open'} <a href="${esc(s.apiUi)}" target="_blank" style="color:var(--accent)">${esc(s.apiUi)}</a>,
-    click the user icon (top right) → <b>API Keys</b> → <b>Add</b>, then put it in <code>server-dashboard/.env</code> as
-    <code>TRUENAS_API_KEY=…</code> (or the container's environment) and restart.</div>`;
+function keyHint(type, host) {
+  if (type === 'unraid') return 'In Unraid go to <b>Settings → Management Access → API Keys</b> and create a key with the <b>viewer</b> role (Unraid 7.2+, or install the Unraid Connect plugin on older versions).';
+  if (type === 'truenas') return `Open <a href="https://${esc(host || '')}/ui/" target="_blank" rel="noopener">https://${esc(host || '&lt;server&gt;')}/ui/</a>, click the user icon (top right) → <b>API Keys</b> → <b>Add</b>.`;
+  return '<b>Unraid:</b> Settings → Management Access → API Keys (viewer role). <b>TrueNAS / HexOS:</b> https://&lt;server&gt;/ui/ → user icon → API Keys → Add.';
 }
 
+function setupCard(s) {
+  return `<div class="setup"><b>Add an API key for live CPU, memory, disk and app stats.</b> ${keyHint(s.type, s.host)}
+    Then paste it under <a href="#" data-open-servers style="color:var(--accent)">⚙ Servers</a>.</div>`;
+}
+
+const accentOf = (id) => `var(--srv${(Math.max(0, serverList.findIndex((x) => x.id === id)) % 4) + 1})`;
+
 function render(s, idx) {
-  const cls = s.id;
+  const cls = s.type;
   const mem = s.memory || {};
   const memP = pct(mem.used, mem.total);
   const arr = s.array || {};
@@ -388,14 +452,14 @@ function render(s, idx) {
     stat(cpu.usage, 'CPU', cpu.usage != null ? Math.round(cpu.usage) + '%' : '—',
       cpu.load ? `load ${cpu.load.map((l) => l.toFixed(2)).join(' ')}` : cpu.threads ? `${cpu.cores}c / ${cpu.threads}t` : esc(cpu.model)),
     stat(memP, 'Memory', mem.used != null ? bytes(mem.used) : bytes(mem.total), mem.used != null ? `of ${bytes(mem.total)}` : mem.total ? 'installed' : ''),
-    stat(arrP, s.id === 'truenas' ? 'Pools' : 'Array', arr.total ? bytes(arr.free) + ' free' : '—', arr.total ? `${bytes(arr.used)} / ${bytes(arr.total)}` : esc(arr.state || '')),
+    stat(arrP, s.type === 'truenas' ? 'Pools' : 'Array', arr.total ? bytes(arr.free) + ' free' : '—', arr.total ? `${bytes(arr.used)} / ${bytes(arr.total)}` : esc(arr.state || '')),
     stat(maxT != null ? Math.min(100, (maxT / 60) * 100) : null, 'Hottest disk', maxT != null ? maxT + '°C' : '—', temps.length ? `${temps.length} disks reporting` : '', maxT != null ? maxT + '°' : '—'),
   ].join('');
 
   const plex = s.plex?.streams;
   const status = !s.online ? 'Offline' : s.configured ? (arr.state || 'Online') : 'Reachable';
 
-  return `<section class="server ${cls} ${s.online ? '' : 'offline'}" style="animation-delay:${idx * 80}ms">
+  return `<section class="server ${cls} ${s.online ? '' : 'offline'}" style="--accent:${s.online ? accentOf(s.id) : 'var(--bad)'}">
     <div class="s-head">
       <div class="glyph">${s.name[0]}</div>
       <div class="s-title">
@@ -413,7 +477,7 @@ function render(s, idx) {
 
     ${s.pools?.length ? `<h3>Pools <span class="count">${s.pools.length}</span></h3><div class="disks">${s.pools.map((p) => diskCard({ ...p, role: p.healthy ? p.status : '⚠ ' + p.status, temp: undefined })).join('').replaceAll('spun down', '')}</div>` : ''}
 
-    ${s.containers?.length ? `<h3>${s.id === 'truenas' ? 'Apps' : 'Containers'} <span class="count">${running}/${s.containers.length} running</span></h3>
+    ${s.containers?.length ? `<h3>${s.type === 'truenas' ? 'Apps' : 'Containers'} <span class="count">${running}/${s.containers.length} running</span></h3>
       <div class="apps">${s.containers.map((c) => {
         const tag = c.url ? 'a' : 'span';
         return `<${tag} class="app ${esc(c.state)}" ${c.url ? `href="${esc(c.url)}" target="_blank"` : ''} title="${esc(c.status || c.state)}${c.image ? ' · ' + esc(c.image) : ''}">
@@ -471,7 +535,7 @@ function demo() {
   const r = (a, b) => a + Math.random() * (b - a);
   const T = 1e12;
   return { time: Date.now(), servers: [
-    { id: 'unraid', name: 'Tower', os: 'Unraid', version: '7.2.0', host: '10.0.0.10', ui: '#', online: true, configured: true, latency: 1, uptime: 1234567,
+    { id: 'unraid', type: 'unraid', name: 'Tower', os: 'Unraid', version: '7.2.0', host: '10.0.0.10', ui: '#', online: true, configured: true, latency: 1, uptime: 1234567,
       cpu: { usage: r(5, 40), cores: 8, threads: 16 }, memory: { total: 64e9, used: r(20e9, 40e9) },
       array: { state: 'STARTED', total: 40 * T, used: 26.4 * T, free: 13.6 * T },
       disks: [['parity', 'parity', 0, 16 * T, 36], ['disk1', 'data', 7.2 * T, 12 * T, 38], ['disk2', 'data', 9.9 * T, 12 * T, null], ['disk3', 'data', 9.3 * T, 16 * T, 41], ['cache', 'cache', .6 * T, 2 * T, 46]]
@@ -480,7 +544,7 @@ function demo() {
       vms: [{ name: 'Windows 11', state: 'shutoff' }],
       plex: { streams: [{ title: 'Severance — Cold Harbor', user: 'guest', state: 'playing', progress: .42 }] },
       services: [{ name: 'Unraid', url: '#', up: true, ms: 1 }, { name: 'Plex', url: '#', up: true, ms: 2 }, { name: 'Proxy Manager', url: '#', up: true, ms: 1 }] },
-    { id: 'truenas', name: 'Vault', os: 'HexOS', version: '25.10.0', host: '10.0.0.20', ui: '#', online: true, configured: true, latency: 2, uptime: 523000,
+    { id: 'truenas', type: 'truenas', name: 'Vault', os: 'HexOS', version: '25.10.0', host: '10.0.0.20', ui: '#', online: true, configured: true, latency: 2, uptime: 523000,
       cpu: { usage: r(3, 25), load: [0.42, 0.51, 0.48], cores: 6, threads: 12 }, memory: { total: 32e9, used: null },
       array: { state: 'HEALTHY', total: 24 * T, used: 9.1 * T, free: 14.9 * T },
       pools: [{ name: 'tank', status: 'ONLINE', healthy: true, total: 22 * T, used: 9 * T }, { name: 'apps', status: 'ONLINE', healthy: true, total: 2 * T, used: .1 * T }],
@@ -521,7 +585,7 @@ function tile(a) {
   const st = a.up == null ? ['pend', 'checking'] : !a.up ? ['down', 'down'] : a.degraded ? ['deg', `http ${a.code}`] : ['up', 'up'];
   const tag = a.link ? 'a' : 'div';
   const addr = `${a.host}:${a.port}${a.tcp ? ' · tcp' : ''}`;
-  return `<${tag} class="tile ${a.server} ${a.up === false ? 'down' : ''} ${a.favorite ? 'fav' : ''}" ${a.link ? `href="${esc(a.link)}" target="_blank" rel="noopener"` : ''}>
+  return `<${tag} style="--accent:${accentOf(a.server)}" class="tile ${a.up === false ? 'down' : ''} ${a.favorite ? 'fav' : ''}" ${a.link ? `href="${esc(a.link)}" target="_blank" rel="noopener"` : ''}>
     <div class="top">${icon(a)}
       <div class="info"><div class="nm">${esc(a.name)}</div><div class="addr">${esc(addr)}</div></div>
       <div class="state"><b class="${st[0]}">${st[1]}</b>${a.ms != null ? a.ms + 'ms' : ''}</div>
@@ -544,7 +608,7 @@ function renderServerButtons() {
 function renderApps() {
   if (!serverList.length) {
     $('#appCount').textContent = '';
-    $('#tiles').innerHTML = '<div class="empty-fav">No servers configured yet. Set <code>UNRAID_HOST</code> and/or <code>TRUENAS_HOST</code> (in <code>.env</code> or the container environment) and restart.</div>';
+    $('#tiles').innerHTML = '<div class="empty-fav">No servers yet — add one with ⚙ Servers.</div>';
     return;
   }
   if (filter !== 'fav' && filter !== 'all' && !serverList.some((x) => x.id === filter)) filter = 'fav';
@@ -553,7 +617,9 @@ function renderApps() {
   const down = apps.filter((a) => a.up === false).length;
   $('#appCount').textContent = `${up}/${list.length} up${filter === 'fav' && down ? ` · ${down} down overall` : ''}`;
   let html = list.map(tile).join('');
-  if (filter === 'fav') {
+  if (!apps.length) {
+    html = `<div class="empty-fav">No apps tracked yet. Scan a server to find the web apps and services running on it. <button class="btn primary" data-scan-now>⟳ Scan for apps</button></div>`;
+  } else if (filter === 'fav') {
     html = list.length
       ? html + `<button class="viewall" data-f="all">View all ${apps.length} apps →</button>`
       : `<div class="empty-fav">No favorites yet. Tap ☆ on any app to pin it here. <button class="btn" data-f="all">View all ${apps.length} apps</button></div>`;
@@ -569,7 +635,7 @@ async function loadApps() {
     if (sig === loadApps.sig) return; // nothing new; don't rebuild tiles under the cursor
     loadApps.sig = sig;
     apps = r.apps;
-    if (JSON.stringify(r.servers) !== JSON.stringify(serverList)) { serverList = r.servers; renderServerButtons(); }
+    if (JSON.stringify(r.servers) !== JSON.stringify(serverList)) { serverList = r.servers; renderServerButtons(); paintServers(); }
     renderApps();
   } catch {}
 }
@@ -588,6 +654,7 @@ function setFilter(f) {
   renderApps();
 }
 $('#tiles').onclick = async (e) => {
+  if (e.target.closest('[data-scan-now]')) return $('#scanBtn').click();
   if (e.target.dataset.f) return setFilter(e.target.dataset.f);
   const star = e.target.dataset.star;
   if (star) {
@@ -685,10 +752,187 @@ function setTheme(t) {
 $('#themeSeg').onclick = (e) => { const b = e.target.closest('button'); if (b) setTheme(b.dataset.t); };
 document.querySelectorAll('#themeSeg button').forEach((b) => b.classList.toggle('on', b.dataset.t === theme()));
 
+// --- servers: first-run setup + management -------------------------------------
+const api = async (method, url, body) => {
+  const r = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+  return j;
+};
+const TYPE_LABEL = { unraid: 'Unraid', truenas: 'TrueNAS' };
+
+function srvRow(s = {}, i = 0, manage = false) {
+  const status = s.id
+    ? `<span class="ok">✓ ${esc(TYPE_LABEL[s.type])}</span> · ${s.hasKey ? 'API key saved' : 'no API key yet'}`
+    : '<span>Enter an IP or hostname and I’ll check what’s there.</span>';
+  const foot = manage
+    ? `<div class="srv-foot"><span class="spacer"></span>
+        ${s.id ? '<button class="btn danger" data-remove>Remove</button>' : '<button class="btn" data-discard>Cancel</button>'}
+        <button class="btn primary" data-save>${s.id ? 'Save' : 'Add server'}</button></div>`
+    : i ? '<div class="srv-foot"><span class="spacer"></span><button class="btn" data-discard>Remove</button></div>' : '';
+  return `<div class="srv-row" data-id="${esc(s.id || '')}" style="--accent:var(--srv${(i % 4) + 1})">
+    <div class="srv-fields">
+      <label>Name<input name="name" placeholder="e.g. Tower" value="${esc(s.name || '')}" autocomplete="off"></label>
+      <label>IP address or hostname<input name="host" placeholder="e.g. 192.168.1.10" value="${esc(s.host || '')}" autocomplete="off" spellcheck="false"></label>
+      <label>Type<select name="type">
+        <option value="">Auto-detect</option>
+        <option value="unraid" ${s.type === 'unraid' ? 'selected' : ''}>Unraid</option>
+        <option value="truenas" ${s.type === 'truenas' ? 'selected' : ''}>TrueNAS / HexOS</option>
+      </select></label>
+    </div>
+    <div class="srv-status" data-status>${status}</div>
+    <details ${s.id && !s.hasKey && manage ? 'open' : ''}>
+      <summary>API key & web UI address (optional)</summary>
+      <div class="srv-more">
+        <label>API key<input name="apiKey" type="password" autocomplete="off" placeholder="${s.hasKey ? '•••••••• saved — paste a new one to replace' : 'Paste a key for CPU, memory, disk and app stats'}"></label>
+        <div class="hint" data-hint>${keyHint(s.type, s.host)}</div>
+        <label>Web UI address<input name="url" placeholder="Auto-detected" value="${esc(s.url || '')}" spellcheck="false"></label>
+      </div>
+    </details>
+    ${foot}
+  </div>`;
+}
+
+const field = (row, n) => row.querySelector(`[name="${n}"]`);
+const setStatus = (row, html) => { row.querySelector('[data-status]').innerHTML = html; };
+
+async function detectRow(row) {
+  const host = field(row, 'host').value.trim();
+  if (!host || row.dataset.detected === host) return;
+  row.dataset.detected = host;
+  setStatus(row, `<span>Checking ${esc(host)}…</span>`);
+  try {
+    const d = await api('POST', '/api/servers/detect', { host });
+    if (field(row, 'host').value.trim() !== host) return; // typed something else meanwhile
+    if (!d.reachable) return setStatus(row, `<span class="bad">✕ Can't reach ${esc(host)}</span>`);
+    if (!d.type) return setStatus(row, `<span class="warn">⚠ ${esc(host)} is online, but I couldn't tell what it runs — pick a type.</span>`);
+    if (!field(row, 'type').value) field(row, 'type').value = d.type;
+    if (!field(row, 'url').value) field(row, 'url').placeholder = d.url;
+    row.querySelector('[data-hint]').innerHTML = keyHint(d.type, host);
+    setStatus(row, `<span class="ok">✓ Found ${esc(d.flavor)}</span> <code>${esc(d.url)}</code>`);
+  } catch (e) { setStatus(row, `<span class="bad">✕ ${esc(e.message)}</span>`); }
+}
+
+async function saveRow(row) {
+  const v = (n) => field(row, n).value.trim();
+  if (!v('name') || !v('host')) throw new Error('Each server needs a name and an IP address or hostname.');
+  const body = { name: v('name'), host: v('host'), type: v('type') || undefined, url: v('url'), apiKey: v('apiKey') || undefined };
+  setStatus(row, '<span>Saving…</span>');
+  const id = row.dataset.id;
+  const r = id ? await api('PATCH', `/api/servers/${encodeURIComponent(id)}`, body) : await api('POST', '/api/servers', body);
+  row.dataset.id = r.server.id;
+  field(row, 'apiKey').value = '';
+  field(row, 'apiKey').placeholder = r.server.hasKey ? '•••••••• saved — paste a new one to replace' : field(row, 'apiKey').placeholder;
+  field(row, 'type').value = r.server.type;
+  setStatus(row, `<span class="ok">✓ Saved as ${esc(TYPE_LABEL[r.server.type])}</span>` +
+    (r.keyError ? ` · <span class="warn">API key didn't work: ${esc(r.keyError.slice(0, 120))}</span>` : r.server.hasKey ? ' · API key works' : ''));
+  return r;
+}
+
+function wireRows(container) {
+  container.addEventListener('input', (e) => {
+    const row = e.target.closest('.srv-row');
+    if (!row || e.target.name !== 'host') return;
+    clearTimeout(row._t);
+    row._t = setTimeout(() => detectRow(row), 700);
+  });
+  container.addEventListener('focusout', (e) => {
+    const row = e.target.closest('.srv-row');
+    if (row && e.target.name === 'host') detectRow(row);
+  });
+  container.addEventListener('change', (e) => {
+    const row = e.target.closest('.srv-row');
+    if (row && e.target.name === 'type') row.querySelector('[data-hint]').innerHTML = keyHint(e.target.value, field(row, 'host').value.trim());
+  });
+}
+
+// first-run setup
+function showSetup(on) {
+  $('#setup').hidden = !on;
+  $('#dash').hidden = on;
+  $('#serversBtn').hidden = on;
+  $('#summary').hidden = on;
+  document.querySelector('footer').hidden = on;
+  if (on && !$('#setupRows').children.length) {
+    $('#setupRows').innerHTML = srvRow({}, 0);
+    field($('#setupRows .srv-row'), 'name').focus();
+  }
+}
+wireRows($('#setupRows'));
+$('#setupAdd').onclick = () => {
+  $('#setupRows').insertAdjacentHTML('beforeend', srvRow({}, $('#setupRows').children.length));
+  field($('#setupRows').lastElementChild, 'name').focus();
+};
+$('#setupRows').addEventListener('click', (e) => { if (e.target.closest('[data-discard]')) e.target.closest('.srv-row').remove(); });
+$('#setupDone').onclick = async () => {
+  $('#setupError').textContent = '';
+  const rows = [...$('#setupRows').children].filter((r) => r.dataset.id || field(r, 'name').value.trim() || field(r, 'host').value.trim());
+  if (!rows.length) return ($('#setupError').textContent = 'Add at least one server.');
+  $('#setupDone').disabled = true;
+  try {
+    for (const row of rows) await saveRow(row);
+    showSetup(false);
+    loadApps.sig = null;
+    load(); loadApps();
+  } catch (e) { $('#setupError').textContent = e.message; }
+  finally { $('#setupDone').disabled = false; }
+};
+
+// manage dialog
+async function openServers(addNew) {
+  const { servers } = await api('GET', '/api/servers');
+  $('#srvRows').innerHTML = servers.map((x, i) => srvRow(x, i, true)).join('');
+  if (addNew || !servers.length) addServerRow();
+  $('#srvDlg').showModal();
+}
+function addServerRow() {
+  $('#srvRows').insertAdjacentHTML('beforeend', srvRow({}, $('#srvRows').children.length, true));
+  const row = $('#srvRows').lastElementChild;
+  row.scrollIntoView({ block: 'nearest' });
+  field(row, 'name').focus();
+}
+wireRows($('#srvRows'));
+$('#srvAdd').onclick = addServerRow;
+$('#srvClose').onclick = () => $('#srvDlg').close();
+$('#srvDlg').addEventListener('close', async () => {
+  const { servers } = await api('GET', '/api/servers');
+  if (!servers.length && !DEMO) return showSetup(true);
+  loadApps.sig = null;
+  load(); loadApps();
+});
+$('#srvRows').addEventListener('click', async (e) => {
+  const row = e.target.closest('.srv-row');
+  if (!row) return;
+  if (e.target.closest('[data-discard]')) return row.remove();
+  if (e.target.closest('[data-save]')) {
+    try { await saveRow(row); row.querySelector('[data-save]').textContent = 'Save'; }
+    catch (err) { setStatus(row, `<span class="bad">✕ ${esc(err.message)}</span>`); }
+  }
+  if (e.target.closest('[data-remove]')) {
+    const name = field(row, 'name').value || 'this server';
+    if (!confirm(`Remove ${name}? Its tracked apps and favorites will be removed too.`)) return;
+    await api('DELETE', `/api/servers/${encodeURIComponent(row.dataset.id)}`);
+    row.remove();
+  }
+});
+$('#serversBtn').onclick = () => openServers(false);
+document.addEventListener('click', (e) => {
+  const t = e.target.closest('[data-open-servers]');
+  if (!t) return;
+  e.preventDefault();
+  openServers(t.dataset.openServers === 'new');
+});
+
 $('#refresh').onclick = () => { load(); loadApps(); };
 tick(); setInterval(tick, 1000);
-load(); setInterval(load, 15000);
-loadApps(); setInterval(loadApps, 10000);
+(async () => {
+  if (!DEMO) {
+    const { servers } = await api('GET', '/api/servers').catch(() => ({ servers: [] }));
+    if (!servers.length) showSetup(true);
+  }
+  load(); setInterval(() => { if ($('#setup').hidden) load(); }, 15000);
+  loadApps(); setInterval(() => { if ($('#setup').hidden) loadApps(); }, 10000);
+})();
 </script>
 </body>
 </html>

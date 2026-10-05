@@ -1,7 +1,7 @@
 FROM node:24-alpine
 LABEL org.opencontainers.image.title="EDITH" org.opencontainers.image.description="Every Device In The House — homelab dashboard"
 WORKDIR /app
-COPY server.js apps.default.json ./
+COPY server.js ./
 COPY public ./public
 ENV NODE_ENV=production PORT=7575
 EXPOSE 7575

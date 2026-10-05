@@ -1,6 +1,7 @@
 # EDITH (Every Device In The House)
 # TrueNAS / HexOS: paste into https://<nas>/ui/ > Apps > Discover Apps > ⋮ > Install via YAML
 # Anywhere else: docker compose up -d
+# Then open http://<host>:7575 and add your servers.
 services:
   edith:
     image: ghcr.io/thegreatmate/edith:latest
@@ -10,17 +11,10 @@ services:
     ports:
       - "7575:7575"
     volumes:
-      # Tracked apps, favorites and ignored ports live here. Change to a path on your server.
+      # Servers, API keys, tracked apps and favorites are saved here. Change to a path on your server.
       - /mnt/POOL/apps/edith:/app/data
     environment:
-      # Leave a server's HOST empty to hide it.
-      UNRAID_NAME: Tower
-      UNRAID_HOST: 192.168.1.10
-      UNRAID_URL: ""            # only if the web UI isn't at http://UNRAID_HOST
-      UNRAID_API_KEY: ""
-      TRUENAS_NAME: NAS
-      TRUENAS_HOST: 192.168.1.20
-      TRUENAS_API_KEY: ""
-      PLEX_URL: ""              # e.g. http://192.168.1.10:32400
-      PLEX_TOKEN: ""
       CHECK_INTERVAL: "30"
+      # Optional: Plex "now playing"
+      PLEX_URL: ""
+      PLEX_TOKEN: ""

@@ -20,22 +20,9 @@ const env = process.env;
 const cfg = {
   port: +(env.PORT || 7575),
   checkInterval: +(env.CHECK_INTERVAL || 30) * 1000,
-  unraid: {
-    name: env.UNRAID_NAME || 'Unraid',
-    host: env.UNRAID_HOST || '',
-    ui: env.UNRAID_URL || (env.UNRAID_HOST ? `http://${env.UNRAID_HOST}` : ''),
-    key: env.UNRAID_API_KEY || '',
-  },
-  truenas: {
-    name: env.TRUENAS_NAME || 'TrueNAS',
-    host: env.TRUENAS_HOST || '',
-    key: env.TRUENAS_API_KEY || '',
-  },
   plex: { url: (env.PLEX_URL || '').replace(/\/$/, ''), token: env.PLEX_TOKEN || '' },
 };
-// Only servers with a host configured are shown.
-const servers = ['unraid', 'truenas'].filter((id) => cfg[id].host).map((id) => ({ id, name: cfg[id].name, host: cfg[id].host }));
-const hosts = Object.fromEntries(servers.map((x) => [x.id, x.host]));
+const TYPES = ['unraid', 'truenas'];
 
 // --- helpers --------------------------------------------------------------
 function tcpPing(host, port, timeout = 1500) {
@@ -60,52 +47,117 @@ async function fetchJson(url, opts = {}, timeout = 6000) {
   } finally { clearTimeout(timer); }
 }
 
-// GET a page without following redirects; returns { status, headers, text } or null.
-async function probeHttp(url, timeout = 2500) {
+// Request a page without following redirects; returns { status, headers, text } or null.
+async function probeHttp(url, timeout = 2500, opts = {}) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeout);
   try {
-    const r = await fetch(url, { redirect: 'manual', signal: ctrl.signal, headers: { 'User-Agent': 'edith-dashboard' } });
+    const r = await fetch(url, { redirect: 'manual', signal: ctrl.signal, ...opts, headers: { 'User-Agent': 'edith-dashboard', ...opts.headers } });
     const text = (await r.text()).slice(0, 200000);
     return { status: r.status, headers: r.headers, text };
   } catch { return null; } finally { clearTimeout(timer); }
 }
 
 const settle = async (p) => { try { return await p; } catch { return null; } };
+const slug = (s) => String(s).toLowerCase().replace(/\(.*?\)/g, '').trim().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 
-// --- app store ------------------------------------------------------------
-const dataDir = process.env.DATA_DIR || path.join(__dirname, 'data');
-const storeFile = path.join(dataDir, 'apps.json');
-let store = { apps: [], ignored: [] };
+// --- store: servers, apps, ignored ports ------------------------------------
+const dataDir = env.DATA_DIR || path.join(__dirname, 'data');
+const storeFile = path.join(dataDir, 'config.json');
+const legacyFile = path.join(dataDir, 'apps.json');
+let store = { servers: [], apps: [], ignored: [] };
 
 function loadStore() {
   try { fs.mkdirSync(dataDir, { recursive: true }); } catch {}
-  if (fs.existsSync(storeFile)) {
-    store = { apps: [], ignored: [], ...JSON.parse(fs.readFileSync(storeFile, 'utf8')) };
-  } else {
-    const seed = JSON.parse(fs.readFileSync(path.join(__dirname, 'apps.default.json'), 'utf8'));
-    store = { apps: seed, ignored: [] };
+  const file = fs.existsSync(storeFile) ? storeFile : fs.existsSync(legacyFile) ? legacyFile : null;
+  if (file) store = { servers: [], apps: [], ignored: [], ...JSON.parse(fs.readFileSync(file, 'utf8')) };
+  // Optional: preconfigure servers via environment on first run.
+  if (!store.servers.length) {
+    if (env.UNRAID_HOST) store.servers.push({ id: 'unraid', type: 'unraid', name: env.UNRAID_NAME || 'Unraid', host: env.UNRAID_HOST, url: env.UNRAID_URL || '', apiKey: env.UNRAID_API_KEY || '' });
+    if (env.TRUENAS_HOST) store.servers.push({ id: 'truenas', type: 'truenas', name: env.TRUENAS_NAME || 'TrueNAS', host: env.TRUENAS_HOST, apiKey: env.TRUENAS_API_KEY || '' });
   }
   store.apps.forEach((a) => { a.id = a.id || `${a.server}-${a.port}`; });
   saveStore();
+  if (file === legacyFile) try { fs.renameSync(legacyFile, legacyFile + '.bak'); } catch {}
 }
 function saveStore() {
   try { fs.writeFileSync(storeFile, JSON.stringify(store, null, 2)); }
   catch (e) { console.error(`! Can't save ${storeFile}: ${e.message} — changes will be lost on restart`); }
 }
 
-function appUrl(a) {
-  if (a.url) return a.url;
-  if (a.tcp) return null;
-  return `${a.scheme || 'http'}://${hosts[a.server]}:${a.port}${a.path || ''}`;
+const serverById = (id) => store.servers.find((s) => s.id === id);
+const hostOf = (id) => serverById(id)?.host;
+// What the browser may see: never the API key.
+const publicServer = ({ apiKey, ...s }) => ({ ...s, hasKey: !!apiKey });
+
+function uniqueId(name) {
+  const base = slug(name) || 'server';
+  let id = base, n = 2;
+  while (serverById(id)) id = `${base}-${n++}`;
+  return id;
+}
+
+// --- server detection -------------------------------------------------------
+const HEXOS_PORT = 43705; // HexOS serves its own UI here on top of TrueNAS
+
+// Works out whether a host is TrueNAS (incl. HexOS) or Unraid, and where its web UI lives.
+async function detect(host) {
+  const ports = [80, 443, 8080, 8443, HEXOS_PORT];
+  const open = Object.fromEntries(await Promise.all(ports.map(async (p) => [p, (await tcpPing(host, p, 1500)) != null])));
+  const out = { host, reachable: Object.values(open).some(Boolean), type: null, flavor: null, url: null };
+  if (!out.reachable) return out;
+
+  if (open[443]) {
+    // TrueNAS lists its API versions publicly; older releases answer the REST API with a plain-text 401.
+    const v = await probeHttp(`https://${host}/api/versions`);
+    const isTrueNAS = (v?.status === 200 && /^\s*\[\s*"v\d/.test(v.text))
+      || /^401: Unauthorized/.test((await probeHttp(`https://${host}/api/v2.0/system/info`))?.text || '')
+      || /TrueNAS/i.test((await probeHttp(`https://${host}/ui/`))?.text || '');
+    if (isTrueNAS) {
+      out.type = 'truenas';
+      out.flavor = open[HEXOS_PORT] ? 'HexOS' : 'TrueNAS';
+      out.url = open[HEXOS_PORT] ? `https://${host}:${HEXOS_PORT}/` : `https://${host}/ui/`;
+      return out;
+    }
+  }
+  // Unraid: its GraphQL API answers unauthenticated requests with a CSRF / auth error;
+  // older releases without the API redirect / to /Main or /login.
+  for (const [scheme, port] of [['http', 80], ['http', 8080], ['https', 443], ['https', 8443]]) {
+    if (!open[port]) continue;
+    const base = `${scheme}://${host}${(scheme === 'http' && port === 80) || (scheme === 'https' && port === 443) ? '' : ':' + port}`;
+    const g = await probeHttp(`${base}/graphql`, 2500, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{"query":"{ __typename }"}' });
+    const root = g && /CSRF|UNAUTHENTICATED/i.test(g.text) ? null : await probeHttp(`${base}/`);
+    const loc = root?.headers.get('location') || '';
+    if ((g && /CSRF|UNAUTHENTICATED/i.test(g.text)) || /\/(Main|login)$/i.test(loc)) {
+      out.type = 'unraid'; out.flavor = 'Unraid'; out.url = base;
+      return out;
+    }
+  }
+  return out;
+}
+
+// Checks an API key against the server; returns null if it works, else an error message.
+async function testKey(s) {
+  try {
+    if (s.type === 'unraid') await unraidQuery(s, '{ info { os { hostname } } }');
+    else await truenasApi(s, 'system/info');
+    return null;
+  } catch (e) { return e.message; }
 }
 
 // --- background health checks ----------------------------------------------
 const HISTORY = 48;
 const health = new Map(); // id -> { up, ms, code, checked, history: [ms|null] }
 
+function appUrl(a) {
+  if (a.url) return a.url;
+  if (a.tcp) return null;
+  return `${a.scheme || 'http'}://${hostOf(a.server)}:${a.port}${a.path || ''}`;
+}
+
 async function checkApp(a) {
-  const host = hosts[a.server];
+  const host = hostOf(a.server);
+  if (!host) return;
   const ms = await tcpPing(host, a.port, 2000);
   let code = null;
   if (ms != null && !a.tcp) {
@@ -124,16 +176,16 @@ let checking = false;
 async function checkAll() {
   if (checking) return;
   checking = true;
-  try { await Promise.all(store.apps.filter((a) => hosts[a.server]).map(checkApp)); } finally { checking = false; }
+  try { await Promise.all(store.apps.map(checkApp)); } finally { checking = false; }
 }
 
 function appsPayload() {
-  return store.apps.filter((a) => hosts[a.server]).map((a) => {
+  return store.apps.filter((a) => hostOf(a.server)).map((a) => {
     const h = health.get(a.id) || { history: [] };
     const seen = h.history.filter((x) => x !== undefined);
     const upCount = seen.filter((x) => x !== null).length;
     return {
-      ...a, host: hosts[a.server], link: appUrl(a),
+      ...a, host: hostOf(a.server), link: appUrl(a),
       up: h.up ?? null, degraded: !!h.degraded, ms: h.ms ?? null, code: h.code ?? null, checked: h.checked ?? null,
       history: h.history, uptime: seen.length ? upCount / seen.length : null,
     };
@@ -150,7 +202,6 @@ const KNOWN = {
   25565: 'Minecraft', 25575: 'Minecraft RCON', 32400: 'Plex', 61208: 'Glances',
 };
 const GENERIC_TITLE = /^(\d{3}\b|default site|just a moment|welcome to nginx|index of|error|redirect|loading)/i;
-const slug = (s) => s.toLowerCase().replace(/\(.*?\)/g, '').trim().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 
 async function fingerprint(host, port) {
   for (const scheme of ['http', 'https']) {
@@ -177,7 +228,7 @@ async function fingerprint(host, port) {
 let scan = { running: false };
 
 async function runScan(server) {
-  const host = hosts[server];
+  const host = hostOf(server);
   scan = { running: true, server, host, progress: 0, phase: 'Scanning ports', found: [], results: [], started: Date.now() };
   const open = [];
   const BATCH = 1000;
@@ -206,14 +257,16 @@ async function runScan(server) {
 }
 
 // --- server stats (Unraid GraphQL) -----------------------------------------
-async function unraidQuery(...variants) {
+const unraidUrl = (s) => (s.url || `http://${s.host}`).replace(/\/$/, '');
+
+async function unraidQuery(s, ...variants) {
   // Schema shifts between Unraid API releases; try each variant until one works.
   let lastErr;
   for (const query of variants) {
     try {
-      const r = await fetchJson(`${cfg.unraid.ui}/graphql`, {
+      const r = await fetchJson(`${unraidUrl(s)}/graphql`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-api-key': cfg.unraid.key },
+        headers: { 'Content-Type': 'application/json', 'x-api-key': s.apiKey },
         body: JSON.stringify({ query }),
       });
       if (r.errors?.length && (!r.data || Object.values(r.data).every((v) => v == null))) throw new Error(r.errors[0].message);
@@ -251,28 +304,29 @@ async function plexStreams() {
   })) };
 }
 
-async function unraid() {
-  const c = cfg.unraid;
-  const out = { id: 'unraid', name: c.name, os: 'Unraid', host: c.host, ui: c.ui, configured: !!c.key, errors: [] };
-  const u = new URL(c.ui);
+async function unraid(s) {
+  const ui = unraidUrl(s);
+  const out = { id: s.id, type: 'unraid', name: s.name, os: 'Unraid', host: s.host, ui, configured: !!s.apiKey, errors: [] };
+  const u = new URL(ui);
   out.latency = await tcpPing(u.hostname, +u.port || (u.protocol === 'https:' ? 443 : 80));
   out.online = out.latency != null;
-  if (!out.online || !c.key) return out;
+  if (!out.online || !s.apiKey) return out;
 
+  const q = (...v) => unraidQuery(s, ...v);
   const r = await runAll({
-    os: unraidQuery('{ info { os { hostname uptime distro release kernel } } }'),
-    version: unraidQuery('{ info { versions { core { unraid } } } }', '{ info { versions { unraid } } }'),
-    cpu: unraidQuery('{ info { cpu { manufacturer brand cores threads } } }'),
-    metrics: unraidQuery(
+    os: q('{ info { os { hostname uptime distro release kernel } } }'),
+    version: q('{ info { versions { core { unraid } } } }', '{ info { versions { unraid } } }'),
+    cpu: q('{ info { cpu { manufacturer brand cores threads } } }'),
+    metrics: q(
       '{ metrics { cpu { percentTotal } memory { total used percentTotal } } }',
       '{ info { memory { total used free available } } }'),
-    array: unraidQuery(
+    array: q(
       `{ array { state capacity { kilobytes { total used free } }
           parities { name size temp status }
           disks { name size temp status fsSize fsUsed fsFree }
           caches { name size temp status fsSize fsUsed fsFree } } }`),
-    docker: unraidQuery('{ docker { containers { names state status image autoStart } } }'),
-    vms: unraidQuery('{ vms { domains { name state } } }'),
+    docker: q('{ docker { containers { names state status image autoStart } } }'),
+    vms: q('{ vms { domains { name state } } }'),
   }, out);
 
   const os = r.os?.info?.os;
@@ -312,33 +366,33 @@ async function unraid() {
 }
 
 // --- server stats (TrueNAS SCALE REST v2.0, incl. HexOS) ---------------------
-const truenasApi = (p, method = 'GET', body) => fetchJson(`https://${cfg.truenas.host}/api/v2.0/${p}`, {
+const truenasApi = (s, p, method = 'GET', body) => fetchJson(`https://${s.host}/api/v2.0/${p}`, {
   method,
-  headers: { Authorization: `Bearer ${cfg.truenas.key}`, 'Content-Type': 'application/json' },
+  headers: { Authorization: `Bearer ${s.apiKey}`, 'Content-Type': 'application/json' },
   body: body ? JSON.stringify(body) : undefined,
 });
 
-const HEXOS_PORT = 43705; // HexOS serves its own UI here on top of TrueNAS
-let hexos = null;
+const hexos = new Map(); // host -> bool, detected once
 
-async function truenas() {
-  const c = cfg.truenas;
-  if (hexos === null) hexos = (await tcpPing(c.host, HEXOS_PORT)) != null;
+async function truenas(s) {
+  if (!hexos.has(s.host)) hexos.set(s.host, (await tcpPing(s.host, HEXOS_PORT)) != null);
+  const isHex = hexos.get(s.host);
   const out = {
-    id: 'truenas', name: c.name, os: hexos ? 'HexOS' : 'TrueNAS', host: c.host,
-    ui: hexos ? `https://${c.host}:${HEXOS_PORT}/` : `https://${c.host}/ui/`, apiUi: `https://${c.host}/ui/`,
-    configured: !!c.key, errors: [],
+    id: s.id, type: 'truenas', name: s.name, os: isHex ? 'HexOS' : 'TrueNAS', host: s.host,
+    ui: s.url || (isHex ? `https://${s.host}:${HEXOS_PORT}/` : `https://${s.host}/ui/`), apiUi: `https://${s.host}/ui/`,
+    configured: !!s.apiKey, errors: [],
   };
-  out.latency = await tcpPing(c.host, 443);
+  out.latency = await tcpPing(s.host, 443);
   out.online = out.latency != null;
-  if (!out.online || !c.key) return out;
+  if (!out.online || !s.apiKey) return out;
 
+  const api = (...a) => truenasApi(s, ...a);
   const r = await runAll({
-    info: truenasApi('system/info'),
-    pools: truenasApi('pool'),
-    apps: truenasApi('app'),
-    disks: truenasApi('disk'),
-    temps: truenasApi('disk/temperatures', 'POST', {}),
+    info: api('system/info'),
+    pools: api('pool'),
+    apps: api('app'),
+    disks: api('disk'),
+    temps: api('disk/temperatures', 'POST', {}),
   }, out);
 
   if (r.info) {
@@ -352,8 +406,8 @@ async function truenas() {
   }
   if (Array.isArray(r.pools)) {
     out.pools = r.pools.map((p) => ({ name: p.name, status: p.status, healthy: p.healthy, total: p.size, used: p.allocated, free: p.free }));
-    const t = out.pools.reduce((s, p) => s + (p.total || 0), 0);
-    const u = out.pools.reduce((s, p) => s + (p.used || 0), 0);
+    const t = out.pools.reduce((sum, p) => sum + (p.total || 0), 0);
+    const u = out.pools.reduce((sum, p) => sum + (p.used || 0), 0);
     out.array = { state: out.pools.every((p) => p.healthy) ? 'HEALTHY' : 'DEGRADED', total: t, used: u, free: t - u };
   }
   const temps = r.temps && typeof r.temps === 'object' ? r.temps : {};
@@ -370,6 +424,8 @@ async function truenas() {
   return out;
 }
 
+const statsFor = { unraid, truenas };
+
 // --- http -----------------------------------------------------------------
 function readBody(req) {
   return new Promise((resolve) => {
@@ -382,23 +438,77 @@ function send(res, code, obj) {
   res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
   res.end(JSON.stringify(obj));
 }
+const cleanHost = (h) => String(h || '').trim().replace(/^[a-z]+:\/\//i, '').replace(/[/:].*$/, '');
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://x');
   const route = `${req.method} ${url.pathname}`;
+  const idFrom = (prefix) => decodeURIComponent(url.pathname.slice(prefix.length));
   try {
     if (route === 'GET /api/status') {
-      const fns = { unraid, truenas };
-      const [list, plex] = await Promise.all([Promise.all(servers.map((x) => settle(fns[x.id]()))), plexStreams()]);
+      const [list, plex] = await Promise.all([Promise.all(store.servers.map((s) => settle(statsFor[s.type](s)))), plexStreams()]);
       const out = list.filter(Boolean);
       if (plex && out[0]) out[0].plex = plex;
       return send(res, 200, { time: Date.now(), servers: out });
     }
-    if (route === 'GET /api/apps') return send(res, 200, { apps: appsPayload(), servers, interval: cfg.checkInterval });
+    if (route === 'GET /api/apps') return send(res, 200, { apps: appsPayload(), servers: store.servers.map(publicServer), interval: cfg.checkInterval });
 
+    // servers
+    if (route === 'GET /api/servers') return send(res, 200, { servers: store.servers.map(publicServer) });
+    if (route === 'POST /api/servers/detect') {
+      const b = await readBody(req);
+      const host = cleanHost(b.host);
+      if (!host) return send(res, 400, { error: 'Enter an IP address or hostname' });
+      return send(res, 200, await detect(host));
+    }
+    if (route === 'POST /api/servers') {
+      const b = await readBody(req);
+      const host = cleanHost(b.host);
+      const name = String(b.name || '').trim().slice(0, 40);
+      if (!name || !host) return send(res, 400, { error: 'Name and IP / hostname are required' });
+      let type = TYPES.includes(b.type) ? b.type : null;
+      let urlGuess = b.url ? String(b.url).trim() : '';
+      if (!type || (type === 'unraid' && !urlGuess)) {
+        const d = await detect(host);
+        if (!d.reachable) return send(res, 400, { error: `Can't reach ${host}` });
+        type = type || d.type;
+        if (!type) return send(res, 400, { error: `Couldn't tell what ${host} is running — pick Unraid or TrueNAS` });
+        if (!urlGuess && d.type === type && type === 'unraid') urlGuess = d.url;
+      }
+      const s = { id: uniqueId(name), type, name, host, url: urlGuess, apiKey: String(b.apiKey || '').trim() };
+      store.servers.push(s);
+      saveStore();
+      const keyError = s.apiKey ? await testKey(s) : null;
+      return send(res, 201, { server: publicServer(s), keyError });
+    }
+    if (req.method === 'PATCH' && url.pathname.startsWith('/api/servers/')) {
+      const s = serverById(idFrom('/api/servers/'));
+      if (!s) return send(res, 404, { error: 'not found' });
+      const b = await readBody(req);
+      if (b.name) s.name = String(b.name).trim().slice(0, 40);
+      if (b.host) { s.host = cleanHost(b.host); hexos.delete(s.host); }
+      if ('url' in b) s.url = String(b.url || '').trim();
+      if (TYPES.includes(b.type)) s.type = b.type;
+      if (b.apiKey) s.apiKey = String(b.apiKey).trim();
+      if (b.clearKey) s.apiKey = '';
+      saveStore();
+      const keyError = b.apiKey ? await testKey(s) : null;
+      return send(res, 200, { server: publicServer(s), keyError });
+    }
+    if (req.method === 'DELETE' && url.pathname.startsWith('/api/servers/')) {
+      const id = idFrom('/api/servers/');
+      store.servers = store.servers.filter((s) => s.id !== id);
+      store.apps.filter((a) => a.server === id).forEach((a) => health.delete(a.id));
+      store.apps = store.apps.filter((a) => a.server !== id);
+      store.ignored = store.ignored.filter((i) => i.server !== id);
+      saveStore();
+      return send(res, 200, { ok: true });
+    }
+
+    // apps
     if (route === 'POST /api/apps') {
       const b = await readBody(req);
-      if (!hosts[b.server] || !(b.port > 0 && b.port < 65536) || !b.name) return send(res, 400, { error: 'server, port and name are required' });
+      if (!hostOf(b.server) || !(b.port > 0 && b.port < 65536) || !b.name) return send(res, 400, { error: 'server, port and name are required' });
       const id = `${b.server}-${b.port}`;
       if (store.apps.some((a) => a.id === id)) return send(res, 409, { error: 'That port is already tracked' });
       const app = { id, name: String(b.name).slice(0, 60), server: b.server, port: +b.port, icon: b.icon || slug(b.name) };
@@ -412,8 +522,7 @@ const server = http.createServer(async (req, res) => {
       return send(res, 201, app);
     }
     if (req.method === 'PATCH' && url.pathname.startsWith('/api/apps/')) {
-      const id = decodeURIComponent(url.pathname.slice('/api/apps/'.length));
-      const app = store.apps.find((a) => a.id === id);
+      const app = store.apps.find((a) => a.id === idFrom('/api/apps/'));
       if (!app) return send(res, 404, { error: 'not found' });
       const b = await readBody(req);
       if ('favorite' in b) { if (b.favorite) app.favorite = true; else delete app.favorite; }
@@ -423,7 +532,7 @@ const server = http.createServer(async (req, res) => {
       return send(res, 200, app);
     }
     if (req.method === 'DELETE' && url.pathname.startsWith('/api/apps/')) {
-      const id = decodeURIComponent(url.pathname.slice('/api/apps/'.length));
+      const id = idFrom('/api/apps/');
       store.apps = store.apps.filter((a) => a.id !== id);
       health.delete(id);
       saveStore();
@@ -431,7 +540,7 @@ const server = http.createServer(async (req, res) => {
     }
     if (route === 'POST /api/ignore') {
       const b = await readBody(req);
-      if (hosts[b.server] && b.port) {
+      if (hostOf(b.server) && b.port) {
         store.ignored.push({ server: b.server, port: +b.port });
         saveStore();
         if (scan.results) scan.results.forEach((r) => { if (r.server === b.server && r.port === +b.port) r.ignored = true; });
@@ -440,7 +549,7 @@ const server = http.createServer(async (req, res) => {
     }
     if (route === 'POST /api/scan') {
       const b = await readBody(req);
-      if (!hosts[b.server]) return send(res, 400, { error: 'unknown server' });
+      if (!hostOf(b.server)) return send(res, 400, { error: 'unknown server' });
       if (scan.running) return send(res, 409, { error: 'A scan is already running' });
       runScan(b.server).catch((e) => { scan = { running: false, error: e.message }; });
       return send(res, 202, { ok: true });
@@ -468,7 +577,6 @@ checkAll();
 setInterval(checkAll, cfg.checkInterval);
 
 server.listen(cfg.port, () => {
-  console.log(`EDITH on http://localhost:${cfg.port} — tracking ${store.apps.length} apps`);
-  if (!servers.length) console.log('  ! No servers configured — set UNRAID_HOST and/or TRUENAS_HOST');
-  for (const x of servers) if (!cfg[x.id].key) console.log(`  ! ${x.id.toUpperCase()}_API_KEY not set — ${x.name} shows reachability only`);
+  console.log(`EDITH on http://localhost:${cfg.port} — ${store.servers.length} servers, ${store.apps.length} apps`);
+  if (!store.servers.length) console.log('  Open the page to add your servers.');
 });
