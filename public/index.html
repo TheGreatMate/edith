@@ -1,0 +1,694 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EDITH</title>
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<meta name="theme-color" content="#0b0e14">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Pixelify+Sans:wght@400;600&family=Press+Start+2P&display=swap" rel="stylesheet">
+<script>
+  (function () {
+    var t; try { t = localStorage.getItem('theme'); } catch (e) {}
+    if (!t) t = matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+    document.documentElement.dataset.theme = t;
+  })();
+</script>
+<style>
+  :root {
+    --bg: #07090d;
+    --panel: #0d1117cc;
+    --panel-solid: #0d1117;
+    --line: #1c2430;
+    --line-soft: #141b24;
+    --text: #e6edf3;
+    --muted: #7d8a99;
+    --faint: #4a5563;
+    --ok: #3ddc97;
+    --warn: #ffb547;
+    --bad: #ff5d6c;
+    --srv1: #ff9a3c;
+    --srv2: #a78bfa;
+    --mono: 'JetBrains Mono', ui-monospace, monospace;
+    --sans: Inter, system-ui, sans-serif;
+    --display: Inter, system-ui, sans-serif;
+    --tint: #ffffff04; --tint-2: #ffffff08; --tint-3: #ffffff10;
+    --glow-a: #ff9a3c14; --glow-b: #a78bfa18;
+    --star: #ffd166;
+    --grad: linear-gradient(135deg, #ff9a3c, #a78bfa);
+    --on-grad: #0b0d12;
+    color-scheme: dark;
+  }
+  :root[data-theme="light"] {
+    --bg: #f4f5f8; --panel: #ffffffd9; --panel-solid: #ffffff;
+    --line: #dfe3ea; --line-soft: #e9ecf1;
+    --text: #121821; --muted: #5a6574; --faint: #98a2b0;
+    --ok: #0f9d63; --warn: #c27400; --bad: #d92f45;
+    --srv1: #e2700a; --srv2: #7357e0;
+    --tint: #0000000a; --tint-2: #0000000d; --tint-3: #00000014;
+    --glow-a: #ff9a3c22; --glow-b: #a78bfa26;
+    --star: #e0a100;
+    --grad: linear-gradient(135deg, #ff9a3c, #a78bfa);
+    --on-grad: #120c1c;
+    color-scheme: light;
+  }
+  :root[data-theme="retro"] {
+    --bg: #0d0221; --panel: #1a0b2ee6; --panel-solid: #1a0b2e;
+    --line: #4a2a80; --line-soft: #2e1656;
+    --text: #f4f1ff; --muted: #b3a6e0; --faint: #7a6aae;
+    --ok: #39ff14; --warn: #ffe600; --bad: #ff2a6d;
+    --srv1: #ff9e00; --srv2: #05d9e8;
+    --mono: 'Pixelify Sans', monospace; --sans: 'Pixelify Sans', monospace; --display: 'Press Start 2P', monospace;
+    --tint: #ffffff06; --tint-2: #ffffff0c; --tint-3: #ffffff18;
+    --glow-a: #ff2a6d22; --glow-b: #05d9e822;
+    --star: #ffe600;
+    --grad: linear-gradient(90deg, #ff2a6d, #ff9e00);
+    --on-grad: #0d0221;
+    color-scheme: dark;
+  }
+  /* retro: square everything, chunky shadows, pixel display font for numbers */
+  [data-theme="retro"] *, [data-theme="retro"] *::before { border-radius: 0 !important; }
+  [data-theme="retro"] body { -webkit-font-smoothing: none; font-smooth: never; }
+  [data-theme="retro"] .server, [data-theme="retro"] .apps-panel, [data-theme="retro"] dialog { border-width: 2px; box-shadow: 6px 6px 0 #000; backdrop-filter: none; }
+  [data-theme="retro"] .tile, [data-theme="retro"] .stat, [data-theme="retro"] .disk { border-width: 2px; }
+  [data-theme="retro"] a.tile:hover { transform: translate(-2px, -2px); box-shadow: 4px 4px 0 var(--accent); }
+  [data-theme="retro"] .clock { font: 32px/1.1 var(--display); letter-spacing: 0; text-shadow: 3px 3px 0 #ff2a6d88; }
+  [data-theme="retro"] .clock small { font-family: var(--sans); font-size: 18px; }
+  [data-theme="retro"] .stat .big { font: 12px/1.6 var(--display); }
+  [data-theme="retro"] .s-title h2, [data-theme="retro"] .toolbar h2, [data-theme="retro"] .dlg-h h2 { font: 15px/1.4 var(--display); }
+  [data-theme="retro"] .glyph { font: 18px var(--display); }
+  [data-theme="retro"] .tile .state, [data-theme="retro"] .pill b { font-family: var(--display); font-size: 9px; }
+  [data-theme="retro"] .tile .state b { font: 9px/1.8 var(--display); }
+  [data-theme="retro"] .dot.ok { animation: blink 1.2s steps(1) infinite; box-shadow: none; }
+  [data-theme="retro"] .spark i, [data-theme="retro"] .ring .val { transition: none; }
+  @keyframes blink { 50% { opacity: .35; } }
+  .pixmeter rect { shape-rendering: crispEdges; }
+  .theme-seg button { font-size: 13px; padding: 6px 10px; }
+  * { box-sizing: border-box; }
+  html, body { transition: background-color .25s, color .25s; }
+  html, body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 var(--sans), system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+  body::before {
+    content: ''; position: fixed; inset: 0; pointer-events: none; z-index: 0;
+    background:
+      radial-gradient(900px 500px at 10% -10%, var(--glow-a), transparent 60%),
+      radial-gradient(900px 500px at 95% 0%, var(--glow-b), transparent 60%),
+      linear-gradient(var(--line-soft) 1px, transparent 1px) 0 0 / 100% 48px,
+      linear-gradient(90deg, var(--line-soft) 1px, transparent 1px) 0 0 / 48px 100%;
+    mask-image: linear-gradient(#000, #0000 85%);
+  }
+  .wrap { position: relative; z-index: 1; max-width: 1440px; margin: 0 auto; padding: 28px 24px 48px; }
+
+  header.top { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 24px; }
+  .brand { display: flex; align-items: center; gap: 10px; }
+  .brand img { width: 28px; height: 28px; border-radius: 7px; }
+  .wordmark { font: 700 14px var(--sans); letter-spacing: .22em; background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  [data-theme="retro"] .wordmark { font: 12px var(--display); letter-spacing: .1em; }
+  [data-theme="retro"] .brand img { image-rendering: pixelated; }
+  .greet::before { content: '·'; margin-right: 10px; color: var(--faint); }
+  .greet { font-size: 13px; color: var(--muted); letter-spacing: .14em; text-transform: uppercase; }
+  .clock { font: 600 44px/1 var(--sans); letter-spacing: -.02em; margin-top: 6px; font-variant-numeric: tabular-nums; }
+  .clock small { font-size: 16px; color: var(--muted); font-weight: 500; margin-left: 10px; letter-spacing: 0; }
+  .summary { display: flex; gap: 10px; flex-wrap: wrap; }
+  .pill { display: inline-flex; align-items: center; gap: 8px; padding: 8px 14px; border: 1px solid var(--line); background: var(--panel); border-radius: 999px; font-size: 12.5px; color: var(--muted); backdrop-filter: blur(8px); }
+  .pill b { color: var(--text); font-weight: 600; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); flex: none; }
+  .dot.ok { background: var(--ok); box-shadow: 0 0 0 0 #3ddc9766; animation: pulse 2.4s infinite; }
+  .dot.bad { background: var(--bad); }
+  .dot.warn { background: var(--warn); }
+  @keyframes pulse { 0% { box-shadow: 0 0 0 0 #3ddc9766; } 70% { box-shadow: 0 0 0 8px #3ddc9700; } 100% { box-shadow: 0 0 0 0 #3ddc9700; } }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 620px), 1fr)); gap: 20px; }
+  .server { --accent: var(--srv1); position: relative; border: 1px solid var(--line); background: var(--panel); border-radius: 18px; padding: 22px; backdrop-filter: blur(10px); overflow: hidden; }
+  .server.truenas { --accent: var(--srv2); }
+  .server::before { content: ''; position: absolute; inset: 0 0 auto 0; height: 2px; background: linear-gradient(90deg, transparent, var(--accent), transparent); opacity: .8; }
+  .server.offline { --accent: var(--bad); }
+
+  .s-head { display: flex; align-items: center; gap: 14px; }
+  .glyph { width: 46px; height: 46px; border-radius: 12px; display: grid; place-items: center; background: color-mix(in srgb, var(--accent) 14%, transparent); border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent); color: var(--accent); font: 700 20px var(--sans); }
+  .s-title { flex: 1; min-width: 0; }
+  .s-title h2 { margin: 0; font-size: 22px; letter-spacing: -.01em; display: flex; align-items: center; gap: 10px; }
+  .s-title .sub { color: var(--muted); font-size: 12.5px; font-family: var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .badge { font: 600 10.5px var(--sans); letter-spacing: .08em; text-transform: uppercase; padding: 3px 8px; border-radius: 6px; background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent); }
+  .s-open { color: var(--muted); text-decoration: none; border: 1px solid var(--line); padding: 7px 12px; border-radius: 10px; font-size: 12.5px; transition: .15s; white-space: nowrap; }
+  .s-open:hover { color: var(--text); border-color: var(--accent); }
+
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 22px 0 6px; }
+  @media (max-width: 640px) { .stats { grid-template-columns: repeat(2, 1fr); } }
+  .stat { border: 1px solid var(--line-soft); background: var(--tint); border-radius: 14px; padding: 14px; display: flex; align-items: center; gap: 12px; min-width: 0; }
+  .ring { width: 52px; height: 52px; flex: none; }
+  .ring circle { fill: none; stroke-width: 5; }
+  .ring .track { stroke: var(--line); }
+  .ring .val { stroke: var(--accent); stroke-linecap: round; transition: stroke-dashoffset .8s cubic-bezier(.2,.8,.2,1), stroke .3s; transform: rotate(-90deg); transform-origin: 50% 50%; }
+  .ring text { fill: var(--text); font: 600 12px var(--sans); text-anchor: middle; dominant-baseline: central; }
+  .stat .lbl { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .1em; }
+  .stat .big { font: 600 18px var(--sans); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .stat .small { font-size: 11.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .stat > div { min-width: 0; }
+
+  h3 { font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); font-weight: 600; margin: 22px 0 10px; display: flex; align-items: center; gap: 8px; }
+  h3 .count { color: var(--faint); font-family: var(--mono); letter-spacing: 0; }
+  h3::after { content: ''; flex: 1; height: 1px; background: var(--line-soft); }
+
+  .disks { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px; }
+  .disk { border: 1px solid var(--line-soft); border-radius: 10px; padding: 10px 12px; background: var(--tint); }
+  .disk .row { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+  .disk .n { font: 500 12.5px var(--mono); }
+  .disk .role { font-size: 10px; color: var(--faint); text-transform: uppercase; letter-spacing: .08em; }
+  .disk .t { font: 500 12px var(--mono); }
+  .disk .t.cool { color: var(--ok); } .disk .t.warm { color: var(--warn); } .disk .t.hot { color: var(--bad); } .disk .t.idle { color: var(--faint); }
+  .bar { height: 4px; background: var(--line); border-radius: 4px; overflow: hidden; margin-top: 8px; }
+  .bar i { display: block; height: 100%; background: var(--accent); border-radius: 4px; transition: width .8s; }
+  .bar i.hi { background: var(--warn); } .bar i.crit { background: var(--bad); }
+  .disk .meta { font-size: 11px; color: var(--muted); margin-top: 5px; font-family: var(--mono); }
+
+  .apps { display: flex; flex-wrap: wrap; gap: 6px; }
+  .app { display: inline-flex; align-items: center; gap: 7px; padding: 6px 10px; border: 1px solid var(--line-soft); border-radius: 8px; font-size: 12.5px; color: var(--text); text-decoration: none; background: var(--tint); transition: .15s; }
+  a.app:hover { border-color: var(--accent); }
+  .app.stopped, .app.exited, .app.shutoff { color: var(--faint); }
+  .app .up { font-size: 10px; color: var(--warn); }
+
+  .services { display: flex; flex-wrap: wrap; gap: 8px; }
+  .svc { display: inline-flex; align-items: center; gap: 8px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 10px; text-decoration: none; color: var(--text); font-size: 13px; transition: .15s; }
+  .svc:hover { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
+  .svc .ms { color: var(--faint); font: 11px var(--mono); }
+
+  .stream { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px dashed var(--line-soft); font-size: 13px; }
+  .stream:last-child { border: 0; }
+  .stream .who { color: var(--muted); font-size: 12px; margin-left: auto; white-space: nowrap; }
+  .stream .bar { width: 80px; margin: 0; flex: none; }
+
+  .setup { margin-top: 18px; border: 1px dashed color-mix(in srgb, var(--accent) 45%, transparent); border-radius: 12px; padding: 14px 16px; font-size: 13px; color: var(--muted); background: color-mix(in srgb, var(--accent) 5%, transparent); }
+  .setup b { color: var(--text); }
+  .setup code { font-family: var(--mono); font-size: 12px; color: var(--accent); }
+  .errors { margin-top: 12px; font: 11.5px var(--mono); color: var(--warn); opacity: .8; }
+  .empty { color: var(--faint); font-size: 12.5px; }
+
+  /* --- apps --- */
+  .apps-panel { border: 1px solid var(--line); background: var(--panel); border-radius: 18px; padding: 18px 20px 20px; margin-bottom: 20px; backdrop-filter: blur(10px); }
+  .toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .toolbar h2 { margin: 0 6px 0 0; font-size: 18px; letter-spacing: -.01em; }
+  .toolbar .count { color: var(--muted); font: 12px var(--mono); }
+  .toolbar .spacer { flex: 1; }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 10px; padding: 2px; }
+  .seg button { background: none; border: 0; color: var(--muted); font: 500 12.5px var(--sans); padding: 6px 12px; border-radius: 8px; cursor: pointer; }
+  .seg button.on { background: var(--tint-3); color: var(--text); }
+  .btn { background: var(--tint-2); border: 1px solid var(--line); color: var(--text); font: 500 12.5px var(--sans); padding: 7px 12px; border-radius: 10px; cursor: pointer; transition: .15s; display: inline-flex; align-items: center; gap: 6px; }
+  .btn:hover { border-color: var(--muted); }
+  .btn.primary { background: var(--grad); border: 0; color: var(--on-grad); font-weight: 600; }
+  .btn.on { border-color: var(--warn); color: var(--warn); }
+  .btn:disabled { opacity: .5; cursor: default; }
+
+  .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px; margin-top: 16px; }
+  .tile { --accent: var(--srv1); position: relative; display: flex; flex-direction: column; gap: 10px; padding: 12px 14px; border: 1px solid var(--line-soft); border-radius: 14px; background: var(--tint); color: var(--text); text-decoration: none; transition: border-color .15s, transform .15s, background .15s; min-width: 0; }
+  .tile.truenas { --accent: var(--srv2); }
+  a.tile:hover { border-color: color-mix(in srgb, var(--accent) 60%, transparent); background: color-mix(in srgb, var(--accent) 6%, transparent); transform: translateY(-1px); }
+  .tile.down { border-color: color-mix(in srgb, var(--bad) 35%, transparent); background: color-mix(in srgb, var(--bad) 6%, transparent); }
+  .tile .top { display: flex; align-items: center; gap: 11px; min-width: 0; }
+  .ico { width: 34px; height: 34px; border-radius: 9px; flex: none; display: grid; place-items: center; background: var(--tint-2); overflow: hidden; font: 700 14px var(--sans); color: var(--accent); }
+  .ico img { width: 24px; height: 24px; object-fit: contain; }
+  .tile .nm { font-weight: 600; font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tile .addr { font: 11.5px var(--mono); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tile .info { min-width: 0; flex: 1; }
+  .tile .state { text-align: right; flex: none; font: 11px var(--mono); color: var(--muted); }
+  .tile .state b { display: block; font: 600 11px var(--sans); letter-spacing: .06em; text-transform: uppercase; }
+  .tile .state b.up { color: var(--ok); } .tile .state b.down { color: var(--bad); } .tile .state b.deg { color: var(--warn); } .tile .state b.pend { color: var(--faint); }
+  .spark { display: flex; align-items: flex-end; gap: 2px; height: 18px; }
+  .spark i { flex: 1; border-radius: 1.5px; background: color-mix(in srgb, var(--ok) 70%, transparent); min-height: 3px; }
+  .spark i.x { background: var(--bad); height: 100% !important; opacity: .8; }
+  .spark i.d { background: var(--warn); }
+  .spark i.e { background: var(--line); height: 3px !important; }
+  .tile .foot { display: flex; justify-content: space-between; font: 10.5px var(--mono); color: var(--faint); }
+  .tile .rm { position: absolute; top: -7px; right: -7px; width: 22px; height: 22px; border-radius: 50%; border: 1px solid var(--line); background: var(--panel-solid); color: var(--bad); cursor: pointer; display: none; font: 600 13px/1 var(--sans); }
+  .editing .tile .rm { display: block; }
+  .tile .foot { align-items: center; }
+  .tile .star { border: 0; background: none; padding: 0 4px 0 0; margin: -4px 0; color: var(--faint); cursor: pointer; font: 14px/1 var(--sans); transition: color .15s, transform .15s; }
+  .tile .star:hover { color: var(--star); transform: scale(1.2); }
+  .tile.fav .star { color: var(--star); }
+  .editing .tile .star { pointer-events: auto; }
+  .viewall { display: flex; align-items: center; justify-content: center; gap: 8px; border: 1px dashed var(--line); border-radius: 14px; color: var(--muted); font-size: 13px; cursor: pointer; background: none; min-height: 96px; font-family: var(--sans); transition: .15s; }
+  .viewall:hover { color: var(--text); border-color: var(--muted); }
+  .empty-fav { grid-column: 1 / -1; color: var(--muted); font-size: 13px; padding: 18px; border: 1px dashed var(--line); border-radius: 14px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .editing a.tile { pointer-events: none; }
+  .editing .tile .rm { pointer-events: auto; }
+
+  /* --- scan modal --- */
+  dialog { background: var(--panel-solid); color: var(--text); border: 1px solid var(--line); border-radius: 18px; padding: 0; width: min(720px, calc(100vw - 32px)); max-height: calc(100vh - 64px); }
+  dialog::backdrop { background: #000a; backdrop-filter: blur(4px); }
+  .dlg-h { display: flex; align-items: center; gap: 10px; padding: 16px 20px; border-bottom: 1px solid var(--line-soft); }
+  .dlg-h h2 { margin: 0; font-size: 17px; flex: 1; }
+  .dlg-b { padding: 16px 20px 20px; overflow: auto; max-height: calc(100vh - 160px); }
+  .progress { height: 6px; border-radius: 6px; background: var(--line); overflow: hidden; margin: 12px 0 6px; }
+  .progress i { display: block; height: 100%; background: var(--grad); transition: width .4s; }
+  .scan-meta { font: 12px var(--mono); color: var(--muted); }
+  .result { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--line-soft); }
+  .result:last-child { border: 0; }
+  .result .port { font: 600 12.5px var(--mono); width: 58px; color: var(--muted); flex: none; }
+  .result input { flex: 1; min-width: 0; background: var(--tint-2); border: 1px solid var(--line); color: var(--text); border-radius: 8px; padding: 6px 9px; font: 13px var(--sans); }
+  .result .hint { font: 11px var(--mono); color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 160px; }
+  .result.done { opacity: .45; }
+  .result .tag { font: 600 10px var(--sans); text-transform: uppercase; letter-spacing: .08em; color: var(--muted); width: 64px; text-align: right; flex: none; }
+  details summary { cursor: pointer; color: var(--muted); font-size: 12.5px; margin-top: 14px; }
+
+  footer { margin-top: 28px; color: var(--faint); font-size: 12px; display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+  footer button { background: none; border: 1px solid var(--line); color: var(--muted); border-radius: 8px; padding: 5px 10px; font: inherit; cursor: pointer; }
+  footer button:hover { color: var(--text); }
+  .skeleton { opacity: .5; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div>
+      <div class="brand"><img src="icon.svg" alt=""><span class="wordmark">E.D.I.T.H.</span><span class="greet" id="greet"></span></div>
+      <div class="clock" id="clock">--:--<small></small></div>
+    </div>
+    <div class="summary"><span id="summary" class="summary"></span>
+      <div class="seg theme-seg" id="themeSeg" title="Theme">
+        <button data-t="dark" title="Dark">☾ Dark</button><button data-t="light" title="Light">☀ Light</button><button data-t="retro" title="Retro">👾 Retro</button>
+      </div>
+    </div>
+  </header>
+
+  <section class="apps-panel" id="appsPanel">
+    <div class="toolbar">
+      <h2>Apps</h2><span class="count" id="appCount"></span>
+      <span class="spacer"></span>
+      <div class="seg" id="filter">
+        <button data-f="fav">★ Favorites</button><button data-f="all">All</button>
+      </div>
+      <button class="btn" id="editBtn">Edit</button>
+      <button class="btn primary" id="scanBtn">⟳ Scan for apps</button>
+    </div>
+    <div class="tiles" id="tiles"></div>
+  </section>
+
+  <main class="grid" id="grid"></main>
+
+  <dialog id="scanDlg">
+    <div class="dlg-h">
+      <h2>Scan for apps</h2>
+      <div class="seg" id="scanTarget"></div>
+      <button class="btn primary" id="scanStart">Start scan</button>
+      <button class="btn" id="scanClose">✕</button>
+    </div>
+    <div class="dlg-b" id="scanBody">
+      <div class="scan-meta">Checks all 65,535 TCP ports on the server and identifies the web services it finds. Takes about a minute.</div>
+    </div>
+  </dialog>
+
+  <footer>
+    <span id="updated">Connecting…</span>
+    <span><button id="refresh">Refresh</button></span>
+  </footer>
+</div>
+
+<script>
+const $ = (s, el = document) => el.querySelector(s);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const DEMO = new URLSearchParams(location.search).has('demo');
+
+function bytes(n) {
+  if (n == null || isNaN(n)) return '—';
+  const u = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
+  let i = 0; n = +n;
+  while (n >= 1000 && i < u.length - 1) { n /= 1000; i++; }
+  return `${n >= 100 ? n.toFixed(0) : n.toFixed(1)} ${u[i]}`;
+}
+function dur(s) {
+  if (s == null) return '—';
+  const d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60);
+  return d ? `${d}d ${h}h` : h ? `${h}h ${m}m` : `${m}m`;
+}
+const pct = (u, t) => (t && u != null ? Math.max(0, Math.min(100, (u / t) * 100)) : null);
+
+function pixmeter(p) {
+  // 6x6 grid of chunky pixels that fills bottom-up, left-to-right
+  const n = p == null ? 0 : Math.round((p / 100) * 36);
+  const color = p == null ? '' : p > 90 ? 'var(--bad)' : p > 75 ? 'var(--warn)' : 'var(--accent)';
+  let cells = '';
+  for (let i = 0; i < 36; i++) {
+    const x = (i % 6) * 8 + 2, y = 42 - Math.floor(i / 6) * 8;
+    cells += `<rect x="${x}" y="${y}" width="7" height="7" fill="${i < n ? color : 'var(--line-soft)'}"/>`;
+  }
+  return `<svg class="ring pixmeter" viewBox="0 0 52 52">${cells}</svg>`;
+}
+const theme = () => document.documentElement.dataset.theme;
+
+function ring(p, label) {
+  if (theme() === 'retro') return pixmeter(p);
+  const r = 22, c = 2 * Math.PI * r;
+  const off = p == null ? c : c * (1 - p / 100);
+  const color = p == null ? '' : p > 90 ? 'var(--bad)' : p > 75 ? 'var(--warn)' : '';
+  return `<svg class="ring" viewBox="0 0 52 52"><circle class="track" cx="26" cy="26" r="${r}"/>
+    <circle class="val" cx="26" cy="26" r="${r}" stroke-dasharray="${c}" stroke-dashoffset="${off}" ${color ? `style="stroke:${color}"` : ''}/>
+    <text x="26" y="26">${label ?? (p == null ? '—' : Math.round(p) + '%')}</text></svg>`;
+}
+
+function stat(p, lbl, big, small, ringLabel) {
+  return `<div class="stat">${ring(p, ringLabel)}<div><div class="lbl">${lbl}</div><div class="big">${big}</div><div class="small">${small || '&nbsp;'}</div></div></div>`;
+}
+
+function tempClass(t) { return t == null ? 'idle' : t >= 50 ? 'hot' : t >= 42 ? 'warm' : 'cool'; }
+
+function diskCard(d) {
+  const p = pct(d.used, d.total);
+  const cls = p > 90 ? 'crit' : p > 80 ? 'hi' : '';
+  return `<div class="disk">
+    <div class="row"><span class="n">${esc(d.name)}</span><span class="t ${tempClass(d.temp)}">${d.temp != null ? d.temp + '°C' : 'spun down'}</span></div>
+    <div class="row"><span class="role">${esc(d.role)}${d.model ? ' · ' + esc(d.model) : ''}</span></div>
+    ${d.total ? `<div class="bar"><i class="${cls}" style="width:${p}%"></i></div>
+      <div class="meta">${bytes(d.used)} / ${bytes(d.total)}</div>` : `<div class="meta">${bytes(d.size)}</div>`}
+  </div>`;
+}
+
+function setupCard(s) {
+  if (s.id === 'unraid') return `<div class="setup">
+    <b>Connect the Unraid API for live stats.</b> On ${esc(s.name)} go to <b>Settings → Management Access → API Keys</b>
+    (Unraid 7.2+, or install the <i>Unraid Connect</i> plugin on older versions), create a key with the <b>viewer</b> role,
+    then put it in <code>server-dashboard/.env</code> as <code>UNRAID_API_KEY=…</code> (or the container's environment) and restart.</div>`;
+  return `<div class="setup">
+    <b>Connect the TrueNAS API for live stats.</b> ${s.os === 'HexOS' ? 'HexOS runs on TrueNAS — open' : 'Open'} <a href="${esc(s.apiUi)}" target="_blank" style="color:var(--accent)">${esc(s.apiUi)}</a>,
+    click the user icon (top right) → <b>API Keys</b> → <b>Add</b>, then put it in <code>server-dashboard/.env</code> as
+    <code>TRUENAS_API_KEY=…</code> (or the container's environment) and restart.</div>`;
+}
+
+function render(s, idx) {
+  const cls = s.id;
+  const mem = s.memory || {};
+  const memP = pct(mem.used, mem.total);
+  const arr = s.array || {};
+  const arrP = pct(arr.used, arr.total);
+  const cpu = s.cpu || {};
+  const running = (s.containers || []).filter((c) => c.state === 'running').length;
+  const temps = (s.disks || []).map((d) => d.temp).filter((t) => t != null);
+  const maxT = temps.length ? Math.max(...temps) : null;
+
+  const stats = [
+    stat(cpu.usage, 'CPU', cpu.usage != null ? Math.round(cpu.usage) + '%' : '—',
+      cpu.load ? `load ${cpu.load.map((l) => l.toFixed(2)).join(' ')}` : cpu.threads ? `${cpu.cores}c / ${cpu.threads}t` : esc(cpu.model)),
+    stat(memP, 'Memory', mem.used != null ? bytes(mem.used) : bytes(mem.total), mem.used != null ? `of ${bytes(mem.total)}` : mem.total ? 'installed' : ''),
+    stat(arrP, s.id === 'truenas' ? 'Pools' : 'Array', arr.total ? bytes(arr.free) + ' free' : '—', arr.total ? `${bytes(arr.used)} / ${bytes(arr.total)}` : esc(arr.state || '')),
+    stat(maxT != null ? Math.min(100, (maxT / 60) * 100) : null, 'Hottest disk', maxT != null ? maxT + '°C' : '—', temps.length ? `${temps.length} disks reporting` : '', maxT != null ? maxT + '°' : '—'),
+  ].join('');
+
+  const plex = s.plex?.streams;
+  const status = !s.online ? 'Offline' : s.configured ? (arr.state || 'Online') : 'Reachable';
+
+  return `<section class="server ${cls} ${s.online ? '' : 'offline'}" style="animation-delay:${idx * 80}ms">
+    <div class="s-head">
+      <div class="glyph">${s.name[0]}</div>
+      <div class="s-title">
+        <h2>${esc(s.name)} <span class="badge">${esc(s.os)}${s.version ? ' ' + esc(s.version) : ''}</span></h2>
+        <div class="sub"><span class="dot ${s.online ? 'ok' : 'bad'}" style="display:inline-block;vertical-align:middle;margin-right:6px"></span>${esc(status)} · ${esc(s.host)}${s.latency != null ? ` · ${s.latency}ms` : ''}${s.uptime ? ` · up ${dur(s.uptime)}` : ''}</div>
+      </div>
+      <a class="s-open" href="${esc(s.ui)}" target="_blank" rel="noopener">Open UI ↗</a>
+    </div>
+
+    <div class="stats">${stats}</div>
+
+    ${!s.configured ? setupCard(s) : ''}
+
+    ${s.disks?.length ? `<h3>Disks <span class="count">${s.disks.length}</span></h3><div class="disks">${s.disks.map(diskCard).join('')}</div>` : ''}
+
+    ${s.pools?.length ? `<h3>Pools <span class="count">${s.pools.length}</span></h3><div class="disks">${s.pools.map((p) => diskCard({ ...p, role: p.healthy ? p.status : '⚠ ' + p.status, temp: undefined })).join('').replaceAll('spun down', '')}</div>` : ''}
+
+    ${s.containers?.length ? `<h3>${s.id === 'truenas' ? 'Apps' : 'Containers'} <span class="count">${running}/${s.containers.length} running</span></h3>
+      <div class="apps">${s.containers.map((c) => {
+        const tag = c.url ? 'a' : 'span';
+        return `<${tag} class="app ${esc(c.state)}" ${c.url ? `href="${esc(c.url)}" target="_blank"` : ''} title="${esc(c.status || c.state)}${c.image ? ' · ' + esc(c.image) : ''}">
+          <span class="dot ${c.state === 'running' ? 'ok' : c.state === 'deploying' ? 'warn' : ''}" style="animation:none"></span>${esc(c.name)}${c.upgrade ? '<span class="up">↑</span>' : ''}</${tag}>`;
+      }).join('')}</div>` : ''}
+
+    ${s.vms?.length ? `<h3>VMs <span class="count">${s.vms.filter((v) => v.state === 'running').length}/${s.vms.length}</span></h3>
+      <div class="apps">${s.vms.map((v) => `<span class="app ${esc(v.state)}"><span class="dot ${v.state === 'running' ? 'ok' : ''}" style="animation:none"></span>${esc(v.name)}</span>`).join('')}</div>` : ''}
+
+    ${plex ? `<h3>Now playing on Plex <span class="count">${plex.length}</span></h3>
+      ${plex.length ? plex.map((p) => `<div class="stream"><span>${p.state === 'paused' ? '⏸' : '▶'}</span><span>${esc(p.title)}</span>
+        <span class="who">${esc(p.user || '')}</span><div class="bar"><i style="width:${(p.progress || 0) * 100}%"></i></div></div>`).join('')
+        : '<div class="empty">Nothing streaming right now.</div>'}` : ''}
+
+    ${s.errors?.length ? `<div class="errors">${s.errors.map(esc).join('<br>')}</div>` : ''}
+  </section>`;
+}
+
+function summary(servers) {
+  const online = servers.filter((s) => s.online).length;
+  const apps = servers.flatMap((s) => s.containers || []);
+  const run = apps.filter((a) => a.state === 'running').length;
+  const total = servers.reduce((t, s) => t + (s.array?.total || 0), 0);
+  const used = servers.reduce((t, s) => t + (s.array?.used || 0), 0);
+  return `
+    <span class="pill"><span class="dot ${online === servers.length ? 'ok' : 'bad'}"></span><b>${online}/${servers.length}</b> servers online</span>
+    ${apps.length ? `<span class="pill"><b>${run}</b> of ${apps.length} apps running</span>` : ''}
+    ${total ? `<span class="pill"><b>${bytes(total - used)}</b> free of ${bytes(total)}</span>` : ''}`;
+}
+
+let lastStatus = null;
+function paintServers() {
+  if (lastStatus) $('#grid').innerHTML = lastStatus.servers.map(render).join('');
+}
+
+async function load() {
+  try {
+    const data = lastStatus = DEMO ? demo() : await (await fetch('/api/status', { cache: 'no-store' })).json();
+    paintServers();
+    $('#summary').innerHTML = summary(data.servers);
+    $('#updated').textContent = `Updated ${new Date(data.time).toLocaleTimeString()}${DEMO ? ' · DEMO DATA' : ''} · refreshes every 15s`;
+  } catch (e) {
+    $('#updated').textContent = `Can't reach dashboard server — ${e.message}`;
+  }
+}
+
+function tick() {
+  const d = new Date();
+  $('#clock').innerHTML = `${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}<small>${d.toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric' })}</small>`;
+  const h = d.getHours();
+  $('#greet').textContent = (h < 5 ? 'Late night' : h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening');
+}
+
+function demo() {
+  const r = (a, b) => a + Math.random() * (b - a);
+  const T = 1e12;
+  return { time: Date.now(), servers: [
+    { id: 'unraid', name: 'Tower', os: 'Unraid', version: '7.2.0', host: '10.0.0.10', ui: '#', online: true, configured: true, latency: 1, uptime: 1234567,
+      cpu: { usage: r(5, 40), cores: 8, threads: 16 }, memory: { total: 64e9, used: r(20e9, 40e9) },
+      array: { state: 'STARTED', total: 40 * T, used: 26.4 * T, free: 13.6 * T },
+      disks: [['parity', 'parity', 0, 16 * T, 36], ['disk1', 'data', 7.2 * T, 12 * T, 38], ['disk2', 'data', 9.9 * T, 12 * T, null], ['disk3', 'data', 9.3 * T, 16 * T, 41], ['cache', 'cache', .6 * T, 2 * T, 46]]
+        .map(([name, role, used, total, temp]) => ({ name, role, used: role === 'parity' ? null : used, total: role === 'parity' ? null : total, size: total, temp })),
+      containers: ['plex', 'nginx-proxy-manager', 'sonarr', 'radarr', 'prowlarr', 'qbittorrent', 'overseerr', 'tautulli', 'homeassistant'].map((n, i) => ({ name: n, state: i === 7 ? 'exited' : 'running' })),
+      vms: [{ name: 'Windows 11', state: 'shutoff' }],
+      plex: { streams: [{ title: 'Severance — Cold Harbor', user: 'guest', state: 'playing', progress: .42 }] },
+      services: [{ name: 'Unraid', url: '#', up: true, ms: 1 }, { name: 'Plex', url: '#', up: true, ms: 2 }, { name: 'Proxy Manager', url: '#', up: true, ms: 1 }] },
+    { id: 'truenas', name: 'Vault', os: 'HexOS', version: '25.10.0', host: '10.0.0.20', ui: '#', online: true, configured: true, latency: 2, uptime: 523000,
+      cpu: { usage: r(3, 25), load: [0.42, 0.51, 0.48], cores: 6, threads: 12 }, memory: { total: 32e9, used: null },
+      array: { state: 'HEALTHY', total: 24 * T, used: 9.1 * T, free: 14.9 * T },
+      pools: [{ name: 'tank', status: 'ONLINE', healthy: true, total: 22 * T, used: 9 * T }, { name: 'apps', status: 'ONLINE', healthy: true, total: 2 * T, used: .1 * T }],
+      disks: ['sda', 'sdb', 'sdc', 'nvme0n1'].map((n, i) => ({ name: n, role: i < 3 ? 'tank' : 'apps', size: i < 3 ? 12 * T : 2 * T, temp: 33 + i * 3 })),
+      containers: ['immich', 'jellyfin', 'nextcloud', 'syncthing'].map((n, i) => ({ name: n, state: 'running', upgrade: i === 1 })),
+      services: [{ name: 'HexOS Deck', url: '#', up: null }, { name: 'TrueNAS UI', url: '#', up: true, ms: 2 }] },
+  ] };
+}
+
+// --- apps ---------------------------------------------------------------
+let apps = [], filter = 'all', editing = false, scanTarget = null;
+try { filter = localStorage.getItem('appFilter') || 'fav'; } catch { filter = 'fav'; }
+
+const ICONS = 'https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons';
+function iconFail(img) {
+  // svg -> png -> letter tile
+  if (img.dataset.step !== 'png') { img.dataset.step = 'png'; img.src = `${ICONS}/png/${img.dataset.icon}.png`; return; }
+  img.replaceWith(document.createTextNode(img.alt[0] || '?'));
+}
+const icon = (a) => `<span class="ico"><img src="${ICONS}/svg/${esc(a.icon || '')}.svg" data-icon="${esc(a.icon || '')}" alt="${esc(a.name)}" loading="lazy" onerror="iconFail(this)"></span>`;
+
+function ago(t) {
+  if (!t) return 'pending';
+  const s = Math.round((Date.now() - t) / 1000);
+  return s < 60 ? `${s}s ago` : `${Math.round(s / 60)}m ago`;
+}
+
+function spark(h) {
+  const pad = Array(Math.max(0, 24 - h.length)).fill(undefined);
+  const pts = [...pad, ...h.slice(-24)];
+  const max = Math.max(20, ...h.filter((x) => x > 0));
+  return `<div class="spark">${pts.map((x) =>
+    x === undefined ? '<i class="e"></i>' : x === null ? '<i class="x"></i>' : x < 0 ? '<i class="d" style="height:100%"></i>'
+    : `<i style="height:${20 + (x / max) * 80}%"></i>`).join('')}</div>`;
+}
+
+function tile(a) {
+  const st = a.up == null ? ['pend', 'checking'] : !a.up ? ['down', 'down'] : a.degraded ? ['deg', `http ${a.code}`] : ['up', 'up'];
+  const tag = a.link ? 'a' : 'div';
+  const addr = `${a.host}:${a.port}${a.tcp ? ' · tcp' : ''}`;
+  return `<${tag} class="tile ${a.server} ${a.up === false ? 'down' : ''} ${a.favorite ? 'fav' : ''}" ${a.link ? `href="${esc(a.link)}" target="_blank" rel="noopener"` : ''}>
+    <div class="top">${icon(a)}
+      <div class="info"><div class="nm">${esc(a.name)}</div><div class="addr">${esc(addr)}</div></div>
+      <div class="state"><b class="${st[0]}">${st[1]}</b>${a.ms != null ? a.ms + 'ms' : ''}</div>
+    </div>
+    ${spark(a.history || [])}
+    <div class="foot"><span><button class="star" data-star="${esc(a.id)}" title="${a.favorite ? 'Remove from' : 'Add to'} favorites">${a.favorite ? '★' : '☆'}</button>${a.uptime != null ? (a.uptime * 100).toFixed(a.uptime === 1 ? 0 : 1) + '% up' : ''}</span><span>${ago(a.checked)}</span></div>
+    <button class="rm" data-rm="${esc(a.id)}" title="Remove ${esc(a.name)}">×</button>
+  </${tag}>`;
+}
+
+let serverList = [];
+function renderServerButtons() {
+  const btn = (attr, x, on) => `<button data-${attr}="${esc(x.id)}" class="${on ? 'on' : ''}">${esc(x.name)}</button>`;
+  $('#filter').innerHTML = `<button data-f="fav">★ Favorites</button><button data-f="all">All</button>`
+    + (serverList.length > 1 ? serverList.map((x) => btn('f', x)).join('') : '');
+  if (!serverList.some((x) => x.id === scanTarget)) scanTarget = serverList[0]?.id;
+  $('#scanTarget').innerHTML = serverList.map((x) => btn('s', x, x.id === scanTarget)).join('');
+}
+
+function renderApps() {
+  if (!serverList.length) {
+    $('#appCount').textContent = '';
+    $('#tiles').innerHTML = '<div class="empty-fav">No servers configured yet. Set <code>UNRAID_HOST</code> and/or <code>TRUENAS_HOST</code> (in <code>.env</code> or the container environment) and restart.</div>';
+    return;
+  }
+  if (filter !== 'fav' && filter !== 'all' && !serverList.some((x) => x.id === filter)) filter = 'fav';
+  const list = apps.filter((a) => filter === 'all' || (filter === 'fav' ? a.favorite : a.server === filter));
+  const up = list.filter((a) => a.up).length;
+  const down = apps.filter((a) => a.up === false).length;
+  $('#appCount').textContent = `${up}/${list.length} up${filter === 'fav' && down ? ` · ${down} down overall` : ''}`;
+  let html = list.map(tile).join('');
+  if (filter === 'fav') {
+    html = list.length
+      ? html + `<button class="viewall" data-f="all">View all ${apps.length} apps →</button>`
+      : `<div class="empty-fav">No favorites yet. Tap ☆ on any app to pin it here. <button class="btn" data-f="all">View all ${apps.length} apps</button></div>`;
+  } else if (!list.length) html = '<div class="empty">No apps yet — try a scan.</div>';
+  $('#tiles').innerHTML = html;
+  document.querySelectorAll('#filter button').forEach((b) => b.classList.toggle('on', b.dataset.f === filter));
+}
+
+async function loadApps() {
+  try {
+    const r = await (await fetch('/api/apps', { cache: 'no-store' })).json();
+    const sig = JSON.stringify([r.servers, r.apps.map((a) => [a.id, a.name, a.favorite, a.checked])]);
+    if (sig === loadApps.sig) return; // nothing new; don't rebuild tiles under the cursor
+    loadApps.sig = sig;
+    apps = r.apps;
+    if (JSON.stringify(r.servers) !== JSON.stringify(serverList)) { serverList = r.servers; renderServerButtons(); }
+    renderApps();
+  } catch {}
+}
+
+$('#filter').onclick = (e) => {
+  if (e.target.dataset.f) setFilter(e.target.dataset.f);
+};
+$('#editBtn').onclick = () => {
+  editing = !editing;
+  $('#appsPanel').classList.toggle('editing', editing);
+  $('#editBtn').classList.toggle('on', editing);
+  $('#editBtn').textContent = editing ? 'Done' : 'Edit';
+};
+function setFilter(f) {
+  filter = f; try { localStorage.setItem('appFilter', f); } catch {}
+  renderApps();
+}
+$('#tiles').onclick = async (e) => {
+  if (e.target.dataset.f) return setFilter(e.target.dataset.f);
+  const star = e.target.dataset.star;
+  if (star) {
+    e.preventDefault();
+    const a = apps.find((x) => x.id === star);
+    a.favorite = !a.favorite;
+    renderApps();
+    await fetch(`/api/apps/${encodeURIComponent(star)}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ favorite: a.favorite }) });
+    return;
+  }
+  const id = e.target.dataset.rm; if (!id) return;
+  e.preventDefault();
+  const a = apps.find((x) => x.id === id);
+  if (!confirm(`Stop tracking ${a?.name || id}?`)) return;
+  await fetch(`/api/apps/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  loadApps();
+};
+
+// --- scanning -------------------------------------------------------------
+let scanPoll = null;
+$('#scanBtn').onclick = () => { $('#scanDlg').showModal(); pollScan(); };
+$('#scanClose').onclick = () => { $('#scanDlg').close(); clearTimeout(scanPoll); };
+$('#scanTarget').onclick = (e) => {
+  const s = e.target.dataset.s; if (!s) return;
+  scanTarget = s;
+  document.querySelectorAll('#scanTarget button').forEach((b) => b.classList.toggle('on', b.dataset.s === s));
+};
+$('#scanStart').onclick = async () => {
+  const r = await fetch('/api/scan', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ server: scanTarget }) });
+  if (!r.ok) { alert((await r.json()).error); return; }
+  pollScan();
+};
+
+function resultRow(r, i) {
+  const state = r.tracked ? 'tracked' : r.ignored ? 'ignored' : '';
+  const hint = r.http ? `${r.scheme} ${r.status}${r.software ? ' · ' + r.software : ''}${r.redirect ? ' → ' + r.redirect : ''}` : 'tcp only';
+  return `<div class="result ${state ? 'done' : ''}">
+    <span class="port">:${r.port}</span>
+    <input value="${esc(r.name)}" data-i="${i}" ${state ? 'disabled' : ''}>
+    <span class="hint" title="${esc(hint)}">${esc(hint)}</span>
+    ${r.link ? `<a class="btn" href="${esc(r.link)}" target="_blank" rel="noopener" title="Open">↗</a>` : ''}
+    ${state ? `<span class="tag">${state}</span>` : `<button class="btn" data-add="${i}">Add</button><button class="btn" data-ign="${i}" title="Hide from future scans">Ignore</button>`}
+  </div>`;
+}
+
+let lastScan = null;
+async function pollScan() {
+  clearTimeout(scanPoll);
+  const s = lastScan = await (await fetch('/api/scan', { cache: 'no-store' })).json();
+  $('#scanStart').disabled = !!s.running;
+  if (s.server && !s.running && s.results) {
+    scanTarget = s.server;
+    document.querySelectorAll('#scanTarget button').forEach((b) => b.classList.toggle('on', b.dataset.s === s.server));
+  }
+  const body = $('#scanBody');
+  if (s.running) {
+    body.innerHTML = `<div class="scan-meta">${esc(s.phase)} on ${esc(s.host)}… ${s.found.length} open so far${s.found.length ? ': ' + s.found.join(', ') : ''}</div>
+      <div class="progress"><i style="width:${(s.progress * 100).toFixed(1)}%"></i></div>`;
+  } else if (s.results) {
+    const fresh = s.results.filter((r) => !r.tracked && !r.ignored);
+    const rest = s.results.filter((r) => r.tracked || r.ignored);
+    const idx = (r) => s.results.indexOf(r);
+    body.innerHTML = `<div class="scan-meta">${s.results.length} open ports on ${esc(s.host)} · ${fresh.length} new · scanned ${ago(s.finished)}</div>
+      ${fresh.length ? fresh.map((r) => resultRow(r, idx(r))).join('') : '<p class="empty">Nothing new — every open port is already tracked or ignored.</p>'}
+      ${rest.length ? `<details><summary>${rest.length} already tracked or ignored</summary>${rest.map((r) => resultRow(r, idx(r))).join('')}</details>` : ''}`;
+  } else if (s.error) {
+    body.innerHTML = `<div class="errors">Scan failed: ${esc(s.error)}</div>`;
+  }
+  if (s.running && $('#scanDlg').open) scanPoll = setTimeout(pollScan, 1000);
+  if (!s.running && s.results) loadApps();
+}
+
+$('#scanBody').onclick = async (e) => {
+  const add = e.target.dataset.add, ign = e.target.dataset.ign;
+  if (add == null && ign == null) return;
+  const r = lastScan.results[add ?? ign];
+  if (add != null) {
+    const name = $(`#scanBody input[data-i="${add}"]`).value.trim() || r.name;
+    const res = await fetch('/api/apps', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ server: r.server, port: r.port, name, scheme: r.scheme, tcp: !r.http }) });
+    if (!res.ok) alert((await res.json()).error);
+  } else {
+    await fetch('/api/ignore', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ server: r.server, port: r.port }) });
+  }
+  pollScan();
+};
+
+// --- theme ----------------------------------------------------------------
+function setTheme(t) {
+  document.documentElement.dataset.theme = t;
+  try { localStorage.setItem('theme', t); } catch {}
+  document.querySelectorAll('#themeSeg button').forEach((b) => b.classList.toggle('on', b.dataset.t === t));
+  paintServers(); // gauges switch between rings and pixel meters
+}
+$('#themeSeg').onclick = (e) => { const b = e.target.closest('button'); if (b) setTheme(b.dataset.t); };
+document.querySelectorAll('#themeSeg button').forEach((b) => b.classList.toggle('on', b.dataset.t === theme()));
+
+$('#refresh').onclick = () => { load(); loadApps(); };
+tick(); setInterval(tick, 1000);
+load(); setInterval(load, 15000);
+loadApps(); setInterval(loadApps, 10000);
+</script>
+</body>
+</html>
