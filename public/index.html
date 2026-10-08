@@ -56,17 +56,17 @@
     color-scheme: light;
   }
   :root[data-theme="retro"] {
-    --bg: #0d0221; --panel: #1a0b2ee6; --panel-solid: #1a0b2e;
-    --line: #4a2a80; --line-soft: #2e1656;
-    --text: #f4f1ff; --muted: #b3a6e0; --faint: #7a6aae;
+    --bg: #050a18; --panel: #0b1328e6; --panel-solid: #0b1328;
+    --line: #1f3260; --line-soft: #14213f;
+    --text: #eef3ff; --muted: #9db0d8; --faint: #62749e;
     --ok: #39ff14; --warn: #ffe600; --bad: #ff2a6d;
     --srv1: #ff9e00; --srv2: #05d9e8; --srv3: #39ff14; --srv4: #ff2a6d;
     --mono: 'Pixelify Sans', monospace; --sans: 'Pixelify Sans', monospace; --display: 'Press Start 2P', monospace;
     --tint: #ffffff06; --tint-2: #ffffff0c; --tint-3: #ffffff18;
-    --glow-a: #ff2a6d22; --glow-b: #05d9e822;
+    --glow-a: #ff2a6d14; --glow-b: #05d9e81a;
     --star: #ffe600;
     --grad: linear-gradient(90deg, #ff2a6d, #ff9e00);
-    --on-grad: #0d0221;
+    --on-grad: #050a18;
     color-scheme: dark;
   }
   /* retro: square everything, chunky shadows, pixel display font for numbers */
@@ -78,6 +78,10 @@
   [data-theme="retro"] .clock { font: 32px/1.1 var(--display); letter-spacing: 0; text-shadow: 3px 3px 0 #ff2a6d88; }
   [data-theme="retro"] .clock small { font-family: var(--sans); font-size: 18px; }
   [data-theme="retro"] .stat .big { font: 12px/1.6 var(--display); }
+  [data-theme="retro"] .disk .role, [data-theme="retro"] .stat .lbl, [data-theme="retro"] h3,
+  [data-theme="retro"] .badge, [data-theme="retro"] .greet, [data-theme="retro"] .srv-row label { font-size: 12.5px; letter-spacing: .05em; }
+  [data-theme="retro"] .disk .meta, [data-theme="retro"] .stat .small, [data-theme="retro"] .tile .foot,
+  [data-theme="retro"] .tile .addr, [data-theme="retro"] .s-title .sub { font-size: 13px; }
   [data-theme="retro"] .s-title h2, [data-theme="retro"] .toolbar h2, [data-theme="retro"] .dlg-h h2 { font: 15px/1.4 var(--display); }
   [data-theme="retro"] .glyph { font: 18px var(--display); }
   [data-theme="retro"] .tile .state, [data-theme="retro"] .pill b { font-family: var(--display); font-size: 9px; }
@@ -135,7 +139,9 @@
   .s-open:hover { color: var(--text); border-color: var(--accent); }
 
   .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 22px 0 6px; }
-  @media (max-width: 640px) { .stats { grid-template-columns: repeat(2, 1fr); } }
+  .server { container-type: inline-size; }
+  @container (max-width: 820px) { .stats { grid-template-columns: repeat(2, 1fr); } }
+  @container (max-width: 380px) { .stats { grid-template-columns: 1fr; } }
   .stat { border: 1px solid var(--line-soft); background: var(--tint); border-radius: 14px; padding: 14px; display: flex; align-items: center; gap: 12px; min-width: 0; }
   .ring { width: 52px; height: 52px; flex: none; }
   .ring circle { fill: none; stroke-width: 5; }
@@ -143,7 +149,7 @@
   .ring .val { stroke: var(--accent); stroke-linecap: round; transition: stroke-dashoffset .8s cubic-bezier(.2,.8,.2,1), stroke .3s; transform: rotate(-90deg); transform-origin: 50% 50%; }
   .ring text { fill: var(--text); font: 600 12px var(--sans); text-anchor: middle; dominant-baseline: central; }
   .stat .lbl { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .1em; }
-  .stat .big { font: 600 18px var(--sans); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .stat .big { font: 600 18px var(--sans); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .stat .small { font-size: 11.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .stat > div { min-width: 0; }
 
@@ -429,7 +435,7 @@ function diskCard(d) {
   const p = pct(d.used, d.total);
   const cls = p > 90 ? 'crit' : p > 80 ? 'hi' : '';
   return `<div class="disk">
-    <div class="row"><span class="n">${esc(d.name)}</span><span class="t ${tempClass(d.temp)}">${d.temp != null ? d.temp + '°C' : 'spun down'}</span></div>
+    <div class="row"><span class="n">${esc(d.name)}</span><span class="t ${tempClass(d.temp)}">${d.temp != null ? Math.round(d.temp) + '°C' : d.role === 'boot' ? 'flash' : 'spun down'}</span></div>
     <div class="row"><span class="role">${esc(d.role)}${d.model ? ' · ' + esc(d.model) : ''}</span></div>
     ${d.total ? `<div class="bar"><i class="${cls}" style="width:${p}%"></i></div>
       <div class="meta">${bytes(d.used)} / ${bytes(d.total)}</div>` : `<div class="meta">${bytes(d.size)}</div>`}
@@ -458,13 +464,13 @@ function render(s, idx) {
   const cpu = s.cpu || {};
   const running = (s.containers || []).filter((c) => c.state === 'running').length;
   const temps = (s.disks || []).map((d) => d.temp).filter((t) => t != null);
-  const maxT = temps.length ? Math.max(...temps) : null;
+  const maxT = temps.length ? Math.round(Math.max(...temps)) : null;
 
   const stats = [
     stat(cpu.usage, 'CPU', cpu.usage != null ? Math.round(cpu.usage) + '%' : '—',
       cpu.load ? `load ${cpu.load.map((l) => l.toFixed(2)).join(' ')}` : cpu.threads ? `${cpu.cores}c / ${cpu.threads}t` : esc(cpu.model)),
     stat(memP, 'Memory', mem.used != null ? bytes(mem.used) : bytes(mem.total), mem.used != null ? `of ${bytes(mem.total)}` : mem.total ? 'installed' : ''),
-    stat(arrP, s.type === 'truenas' ? 'Pools' : 'Array', arr.total ? bytes(arr.free) + ' free' : '—', arr.total ? `${bytes(arr.used)} / ${bytes(arr.total)}` : esc(arr.state || '')),
+    stat(arrP, s.type === 'truenas' ? 'Pools free' : 'Storage free', arr.total ? bytes(arr.free) : '—', arr.total ? `of ${bytes(arr.total)}` : esc(arr.state || '')),
     stat(maxT != null ? Math.min(100, (maxT / 60) * 100) : null, 'Hottest disk', maxT != null ? maxT + '°C' : '—', temps.length ? `${temps.length} disks reporting` : '', maxT != null ? maxT + '°' : '—'),
   ].join('');
 
@@ -550,7 +556,7 @@ function demo() {
     { id: 'unraid', type: 'unraid', name: 'Tower', os: 'Unraid', version: '7.2.0', host: '10.0.0.10', ui: '#', online: true, configured: true, latency: 1, uptime: 1234567,
       cpu: { usage: r(5, 40), cores: 8, threads: 16 }, memory: { total: 64e9, used: r(20e9, 40e9) },
       array: { state: 'STARTED', total: 40 * T, used: 26.4 * T, free: 13.6 * T },
-      disks: [['parity', 'parity', 0, 16 * T, 36], ['disk1', 'data', 7.2 * T, 12 * T, 38], ['disk2', 'data', 9.9 * T, 12 * T, null], ['disk3', 'data', 9.3 * T, 16 * T, 41], ['cache', 'cache', .6 * T, 2 * T, 46]]
+      disks: [['parity', 'parity', 0, 16 * T, 36], ['disk1', 'data', 7.2 * T, 12 * T, 38], ['disk2', 'data', 9.9 * T, 12 * T, null], ['disk3', 'data', 9.3 * T, 16 * T, 41], ['cache', 'pool', .6 * T, 2 * T, 46.7]]
         .map(([name, role, used, total, temp]) => ({ name, role, used: role === 'parity' ? null : used, total: role === 'parity' ? null : total, size: total, temp })),
       containers: ['plex', 'nginx-proxy-manager', 'sonarr', 'radarr', 'prowlarr', 'qbittorrent', 'overseerr', 'tautulli', 'homeassistant'].map((n, i) => ({ name: n, state: i === 7 ? 'exited' : 'running' })),
       vms: [{ name: 'Windows 11', state: 'shutoff' }],
@@ -560,7 +566,7 @@ function demo() {
       cpu: { usage: r(3, 25), load: [0.42, 0.51, 0.48], cores: 6, threads: 12 }, memory: { total: 32e9, used: null },
       array: { state: 'HEALTHY', total: 24 * T, used: 9.1 * T, free: 14.9 * T },
       pools: [{ name: 'tank', status: 'ONLINE', healthy: true, total: 22 * T, used: 9 * T }, { name: 'apps', status: 'ONLINE', healthy: true, total: 2 * T, used: .1 * T }],
-      disks: ['sda', 'sdb', 'sdc', 'nvme0n1'].map((n, i) => ({ name: n, role: i < 3 ? 'tank' : 'apps', size: i < 3 ? 12 * T : 2 * T, temp: 33 + i * 3 })),
+      disks: ['sda', 'sdb', 'sdc', 'nvme0n1'].map((n, i) => ({ name: n, role: i < 3 ? 'tank' : 'apps', size: i < 3 ? 12 * T : 2 * T, temp: 33.4 + i * 11.15 })),
       containers: ['immich', 'jellyfin', 'nextcloud', 'syncthing'].map((n, i) => ({ name: n, state: 'running', upgrade: i === 1 })),
       services: [{ name: 'HexOS Deck', url: '#', up: null }, { name: 'TrueNAS UI', url: '#', up: true, ms: 2 }] },
   ] };

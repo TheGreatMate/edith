@@ -336,6 +336,7 @@ async function unraid(s) {
     version: q('{ info { versions { core { unraid } } } }', '{ info { versions { unraid } } }'),
     cpu: q('{ info { cpu { manufacturer brand cores threads } } }'),
     metrics: q(
+      '{ metrics { cpu { percentTotal } memory { total used available percentTotal } } }',
       '{ metrics { cpu { percentTotal } memory { total used percentTotal } } }',
       '{ info { memory { total used free available } } }'),
     array: q(
@@ -360,20 +361,28 @@ async function unraid(s) {
   const m = r.metrics;
   if (m?.metrics) {
     out.cpu = { ...(out.cpu || {}), usage: m.metrics.cpu?.percentTotal ?? null };
-    out.memory = { total: +m.metrics.memory?.total, used: +m.metrics.memory?.used };
+    // "used" counts the page cache; total - available is what's actually in use.
+    const mm = m.metrics.memory || {};
+    out.memory = { total: +mm.total, used: mm.available != null ? mm.total - mm.available : +mm.used };
   } else if (m?.info?.memory) {
     const mm = m.info.memory;
     out.memory = { total: +mm.total, used: mm.available != null ? mm.total - mm.available : +mm.used };
   }
   const a = r.array?.array;
   if (a) {
-    const k = a.capacity?.kilobytes || {};
-    out.array = { state: a.state, total: kb(k.total), used: kb(k.used), free: kb(k.free) };
     out.disks = [
       ...(a.parities || []).map((d) => mapDisk(d, 'parity')),
       ...(a.disks || []).map((d) => mapDisk(d, 'data')),
-      ...(a.caches || []).map((d) => mapDisk(d, 'cache')),
+      ...(a.caches || []).map((d) => mapDisk(d, /^(boot|flash)$/i.test(d.name) ? 'boot' : 'pool')),
     ];
+    // Storage = array + pools (many Unraid 7 setups have no array at all). Only the first
+    // member of a multi-disk pool reports filesystem sizes, so summing fs sizes counts each pool once.
+    const sized = out.disks.filter((d) => d.role !== 'boot' && d.total);
+    const k = a.capacity?.kilobytes || {};
+    const sum = (f) => sized.reduce((t, d) => t + (d[f] || 0), 0);
+    out.array = sized.length
+      ? { state: a.state, total: sum('total'), used: sum('used'), free: sum('free') }
+      : { state: a.state, total: kb(k.total), used: kb(k.used), free: kb(k.free) };
   }
   out.containers = (r.docker?.docker?.containers || []).map((x) => ({
     name: (x.names?.[0] || '').replace(/^\//, ''),
