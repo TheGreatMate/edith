@@ -26,6 +26,8 @@ Without a key, a server card shows whether it's reachable. Add one in **⚙ Serv
 - **Unraid:** Settings → Management Access → API Keys → create a key with the *viewer* role (Unraid 7.2+, or the Unraid Connect plugin).
 - **TrueNAS / HexOS:** `https://<server>/ui/` → user icon → API Keys → Add.
 
+**GPU stats (Unraid):** Unraid's API doesn't report live GPU usage. Install **Unraid Management Agent** from Community Apps and EDITH picks it up automatically (port 8043) — load, VRAM, temperature, power and fan for NVIDIA, Intel and AMD GPUs. If you set an API token in the agent, add it under ⚙ Servers → API key & web UI address.
+
 Keys are checked when you save them, stored only in `data/config.json` on the machine running EDITH, and never sent back to the browser. EDITH has no login of its own, so run it on your LAN only.
 
 ### Plex token

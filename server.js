@@ -104,7 +104,7 @@ async function testPlex(url, token) {
 const serverById = (id) => store.servers.find((s) => s.id === id);
 const hostOf = (id) => serverById(id)?.host;
 // What the browser may see: never the API key.
-const publicServer = ({ apiKey, ...s }) => ({ ...s, hasKey: !!apiKey });
+const publicServer = ({ apiKey, agentToken, ...s }) => ({ ...s, hasKey: !!apiKey, hasAgentToken: !!agentToken });
 
 function uniqueId(name) {
   const base = slug(name) || 'server';
@@ -322,12 +322,38 @@ async function plexStreams() {
   })) };
 }
 
+// GPUs: Unraid's API has no live GPU stats, so read them from the Unraid Management Agent
+// plugin (Community Apps) when it's installed. Works with or without an Unraid API key.
+const AGENT_PORT = 8043;
+
+async function agentGpus(s) {
+  const r = await probeHttp(`http://${s.host}:${AGENT_PORT}/api/v1/gpu`, 2500,
+    s.agentToken ? { headers: { Authorization: `Bearer ${s.agentToken}` } } : {});
+  if (!r) return null; // plugin not installed / not reachable
+  if (r.status === 401) return { error: 'Management Agent needs a token — add it in ⚙ Servers' };
+  let list;
+  try { list = JSON.parse(r.text); } catch { return null; }
+  if (!Array.isArray(list)) return null;
+  return {
+    gpus: list.filter((g) => g.available !== false).map((g) => ({
+      name: g.name, vendor: g.vendor, driver: g.driver_version || null,
+      util: g.utilization_gpu_percent ?? null, memUtil: g.utilization_memory_percent ?? null,
+      memTotal: g.memory_total_bytes || null, memUsed: g.memory_used_bytes ?? null,
+      temp: g.temperature_celsius || null, power: g.power_draw_watts || null, fan: g.fan_speed_percent ?? null,
+    })),
+  };
+}
+
 async function unraid(s) {
   const ui = unraidUrl(s);
   const out = { id: s.id, type: 'unraid', name: s.name, os: 'Unraid', host: s.host, ui, configured: !!s.apiKey, errors: [] };
   const u = new URL(ui);
-  out.latency = await tcpPing(u.hostname, +u.port || (u.protocol === 'https:' ? 443 : 80));
+  const [latency, agent] = await Promise.all([tcpPing(u.hostname, +u.port || (u.protocol === 'https:' ? 443 : 80)), agentGpus(s)]);
+  out.latency = latency;
   out.online = out.latency != null;
+  if (agent?.gpus) out.gpus = agent.gpus;
+  if (agent?.error) out.errors.push(agent.error);
+  out.agent = !!agent;
   if (!out.online || !s.apiKey) return out;
 
   const q = (...v) => unraidQuery(s, ...v);
@@ -530,6 +556,7 @@ const server = http.createServer(async (req, res) => {
         if (!urlGuess && d.type === type && type === 'unraid') urlGuess = d.url;
       }
       const s = { id: uniqueId(name), type, name, host, url: urlGuess, apiKey: String(b.apiKey || '').trim() };
+      if (b.agentToken) s.agentToken = String(b.agentToken).trim();
       store.servers.push(s);
       saveStore();
       const keyError = s.apiKey ? await testKey(s) : null;
@@ -545,6 +572,8 @@ const server = http.createServer(async (req, res) => {
       if (TYPES.includes(b.type)) s.type = b.type;
       if (b.apiKey) s.apiKey = String(b.apiKey).trim();
       if (b.clearKey) s.apiKey = '';
+      if (b.agentToken) s.agentToken = String(b.agentToken).trim();
+      if (b.clearAgentToken) delete s.agentToken;
       saveStore();
       const keyError = b.apiKey ? await testKey(s) : null;
       return send(res, 200, { server: publicServer(s), keyError });

@@ -175,6 +175,19 @@
   .bar i { display: block; height: 100%; background: var(--accent); border-radius: 4px; transition: width .8s; }
   .bar i.hi { background: var(--warn); } .bar i.crit { background: var(--bad); }
   .disk .meta { font-size: 11px; color: var(--muted); margin-top: 5px; font-family: var(--mono); }
+  .gpus { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 8px; }
+  .gpu { border: 1px solid var(--line-soft); border-radius: 12px; padding: 12px 14px; background: var(--tint); display: grid; gap: 8px; }
+  .gpu .row { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+  .gpu .n { font-weight: 600; font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .gpu .sub { font: 11px var(--mono); color: var(--muted); }
+  .gpu .gauge { display: grid; grid-template-columns: 44px 1fr auto; align-items: center; gap: 8px; font: 11.5px var(--mono); color: var(--muted); }
+  .gpu .gauge .bar { margin: 0; height: 6px; }
+  .gpu .gauge b { color: var(--text); font-weight: 500; min-width: 64px; text-align: right; }
+  .gpu .facts { display: flex; gap: 14px; font: 11.5px var(--mono); color: var(--muted); flex-wrap: wrap; }
+  .gpu .facts b { color: var(--text); font-weight: 500; }
+  .gpu .t { font: 500 12px var(--mono); }
+  .gpu .t.cool { color: var(--ok); } .gpu .t.warm { color: var(--warn); } .gpu .t.hot { color: var(--bad); }
+  [data-theme="retro"] :is(.gpu .sub, .gpu .gauge, .gpu .facts, .gpu .t) { font-size-adjust: ex-height 0.64; }
 
   .apps { display: flex; flex-wrap: wrap; gap: 6px; }
   .app { display: inline-flex; align-items: center; gap: 7px; padding: 6px 10px; border: 1px solid var(--line-soft); border-radius: 8px; font-size: 12.5px; color: var(--text); text-decoration: none; background: var(--tint); transition: .15s; }
@@ -438,6 +451,20 @@ function stat(p, lbl, big, small, ringLabel) {
 
 function tempClass(t) { return t == null ? 'idle' : t >= 50 ? 'hot' : t >= 42 ? 'warm' : 'cool'; }
 
+function gpuCard(g) {
+  const util = g.util != null ? Math.round(g.util) : null;
+  const mem = pct(g.memUsed, g.memTotal);
+  const barCls = (p) => (p > 90 ? 'crit' : p > 75 ? 'hi' : '');
+  const gauge = (lbl, p, txt) => `<div class="gauge"><span>${lbl}</span><div class="bar"><i class="${barCls(p)}" style="width:${p ?? 0}%"></i></div><b>${txt}</b></div>`;
+  return `<div class="gpu">
+    <div class="row"><span class="n" title="${esc(g.name)}">${esc(g.name)}</span><span class="t ${g.temp == null ? 'idle' : g.temp >= 85 ? 'hot' : g.temp >= 75 ? 'warm' : 'cool'}">${g.temp != null ? Math.round(g.temp) + '°C' : ''}</span></div>
+    <div class="sub">${esc((g.vendor || '').toUpperCase())}${g.driver ? ' · driver ' + esc(g.driver) : ''}</div>
+    ${gauge('Load', util, util != null ? util + '%' : '—')}
+    ${g.memTotal ? gauge('VRAM', mem, `${bytes(g.memUsed)} / ${bytes(g.memTotal)}`) : ''}
+    <div class="facts">${g.power != null ? `<span>Power <b>${Math.round(g.power)} W</b></span>` : ''}${g.fan != null && g.fan !== 0 ? `<span>Fan <b>${Math.round(g.fan)}%</b></span>` : ''}</div>
+  </div>`;
+}
+
 function diskCard(d) {
   const p = pct(d.used, d.total);
   const cls = p > 90 ? 'crit' : p > 80 ? 'hi' : '';
@@ -497,6 +524,8 @@ function render(s, idx) {
     <div class="stats">${stats}</div>
 
     ${!s.configured ? setupCard(s) : ''}
+
+    ${s.gpus?.length ? `<h3>${s.gpus.length > 1 ? 'GPUs' : 'GPU'} <span class="count">${s.gpus.length}</span></h3><div class="gpus">${s.gpus.map(gpuCard).join('')}</div>` : ''}
 
     ${s.disks?.length ? `<h3>Disks <span class="count">${s.disks.length}</span></h3><div class="disks">${s.disks.map(diskCard).join('')}</div>` : ''}
 
@@ -567,6 +596,7 @@ function demo() {
         .map(([name, role, used, total, temp]) => ({ name, role, used: role === 'parity' ? null : used, total: role === 'parity' ? null : total, size: total, temp })),
       containers: ['plex', 'nginx-proxy-manager', 'sonarr', 'radarr', 'prowlarr', 'qbittorrent', 'overseerr', 'tautulli', 'homeassistant'].map((n, i) => ({ name: n, state: i === 7 ? 'exited' : 'running' })),
       vms: [{ name: 'Windows 11', state: 'shutoff' }],
+      gpus: [{ name: 'NVIDIA GeForce RTX 3060', vendor: 'nvidia', driver: '570.86', util: r(5, 60), memTotal: 12.9e9, memUsed: r(1e9, 6e9), temp: 52.4, power: 74.2, fan: 38 }],
       plex: { streams: [{ title: 'Severance — Cold Harbor', user: 'guest', state: 'playing', progress: .42 }] },
       services: [{ name: 'Unraid', url: '#', up: true, ms: 1 }, { name: 'Plex', url: '#', up: true, ms: 2 }, { name: 'Proxy Manager', url: '#', up: true, ms: 1 }] },
     { id: 'truenas', type: 'truenas', name: 'Vault', os: 'HexOS', version: '25.10.0', host: '10.0.0.20', ui: '#', online: true, configured: true, latency: 2, uptime: 523000,
@@ -812,6 +842,8 @@ function srvRow(s = {}, i = 0, manage = false) {
         <label>API key<input name="apiKey" type="password" autocomplete="off" placeholder="${s.hasKey ? '•••••••• saved — paste a new one to replace' : 'Paste a key for CPU, memory, disk and app stats'}"></label>
         <div class="hint" data-hint>${keyHint(s.type, s.host)}</div>
         <label>Web UI address<input name="url" placeholder="Auto-detected" value="${esc(s.url || '')}" spellcheck="false"></label>
+        <div class="hint" data-gpu-hint ${s.type === 'truenas' ? 'hidden' : ''}><b>GPU stats (Unraid):</b> install <b>Unraid Management Agent</b> from Community Apps — EDITH finds it automatically. Only if you set an API token in the agent, paste it here:</div>
+        <label data-gpu-hint ${s.type === 'truenas' ? 'hidden' : ''}>Management Agent token<input name="agentToken" type="password" autocomplete="off" placeholder="${s.hasAgentToken ? '•••••••• saved' : 'Not needed by default'}"></label>
       </div>
     </details>
     ${foot}
@@ -832,6 +864,7 @@ async function detectRow(row) {
     if (!d.reachable) return setStatus(row, `<span class="bad">✕ Can't reach ${esc(host)}</span>`);
     if (!d.type) return setStatus(row, `<span class="warn">⚠ ${esc(host)} is online, but I couldn't tell what it runs — pick a type.</span>`);
     if (!field(row, 'type').value) field(row, 'type').value = d.type;
+    row.querySelectorAll('[data-gpu-hint]').forEach((el) => { el.hidden = field(row, 'type').value === 'truenas'; });
     if (!field(row, 'url').value) field(row, 'url').placeholder = d.url;
     row.querySelector('[data-hint]').innerHTML = keyHint(d.type, host);
     setStatus(row, `<span class="ok">✓ Found ${esc(d.flavor)}</span> <code>${esc(d.url)}</code>` + (d.plex ? ' · <span class="ok">Plex too</span>' : ''));
@@ -846,12 +879,13 @@ async function detectRow(row) {
 async function saveRow(row) {
   const v = (n) => field(row, n).value.trim();
   if (!v('name') || !v('host')) throw new Error('Each server needs a name and an IP address or hostname.');
-  const body = { name: v('name'), host: v('host'), type: v('type') || undefined, url: v('url'), apiKey: v('apiKey') || undefined };
+  const body = { name: v('name'), host: v('host'), type: v('type') || undefined, url: v('url'), apiKey: v('apiKey') || undefined, agentToken: v('agentToken') || undefined };
   setStatus(row, '<span>Saving…</span>');
   const id = row.dataset.id;
   const r = id ? await api('PATCH', `/api/servers/${encodeURIComponent(id)}`, body) : await api('POST', '/api/servers', body);
   row.dataset.id = r.server.id;
   field(row, 'apiKey').value = '';
+  field(row, 'agentToken').value = '';
   field(row, 'apiKey').placeholder = r.server.hasKey ? '•••••••• saved — paste a new one to replace' : field(row, 'apiKey').placeholder;
   field(row, 'type').value = r.server.type;
   setStatus(row, `<span class="ok">✓ Saved as ${esc(TYPE_LABEL[r.server.type])}</span>` +
@@ -872,7 +906,10 @@ function wireRows(container) {
   });
   container.addEventListener('change', (e) => {
     const row = e.target.closest('.srv-row');
-    if (row && e.target.name === 'type') row.querySelector('[data-hint]').innerHTML = keyHint(e.target.value, field(row, 'host').value.trim());
+    if (row && e.target.name === 'type') {
+      row.querySelector('[data-hint]').innerHTML = keyHint(e.target.value, field(row, 'host').value.trim());
+      row.querySelectorAll('[data-gpu-hint]').forEach((el) => { el.hidden = e.target.value === 'truenas'; });
+    }
   });
 }
 
