@@ -7,7 +7,7 @@
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <meta name="theme-color" content="#0b0e14">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Pixelify+Sans:wght@400;600&family=Press+Start+2P&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Pixelify+Sans:wght@400;600&family=Press+Start+2P&family=VT323&display=swap" rel="stylesheet">
 <script>
   (function () {
     var t; try { t = localStorage.getItem('theme'); } catch (e) {}
@@ -61,7 +61,7 @@
     --text: #eef3ff; --muted: #9db0d8; --faint: #62749e;
     --ok: #39ff14; --warn: #ffe600; --bad: #ff2a6d;
     --srv1: #ff9e00; --srv2: #05d9e8; --srv3: #39ff14; --srv4: #ff2a6d;
-    --mono: 'Pixelify Sans', monospace; --sans: 'Pixelify Sans', monospace; --display: 'Press Start 2P', monospace;
+    --mono: 'VT323', monospace; --sans: 'Pixelify Sans', monospace; --display: 'Press Start 2P', monospace;
     --tint: #ffffff06; --tint-2: #ffffff0c; --tint-3: #ffffff18;
     --glow-a: #ff2a6d14; --glow-b: #05d9e81a;
     --star: #ffe600;
@@ -80,8 +80,13 @@
   [data-theme="retro"] .stat .big { font: 12px/1.6 var(--display); }
   [data-theme="retro"] .disk .role, [data-theme="retro"] .stat .lbl, [data-theme="retro"] h3,
   [data-theme="retro"] .badge, [data-theme="retro"] .greet, [data-theme="retro"] .srv-row label { font-size: 12.5px; letter-spacing: .05em; }
-  [data-theme="retro"] .disk .meta, [data-theme="retro"] .stat .small, [data-theme="retro"] .tile .foot,
-  [data-theme="retro"] .tile .addr, [data-theme="retro"] .s-title .sub { font-size: 13px; }
+  [data-theme="retro"] .stat .small { font-size: 13px; }
+  /* small numbers (IPs, ports, ms, sizes) use VT323: distinct digits, but it runs small, so size it up */
+  [data-theme="retro"] .tile .addr, [data-theme="retro"] .tile .foot, [data-theme="retro"] .tile .state,
+  [data-theme="retro"] .disk .n, [data-theme="retro"] .disk .t, [data-theme="retro"] .disk .meta,
+  [data-theme="retro"] .s-title .sub, [data-theme="retro"] .count, [data-theme="retro"] .scan-meta,
+  [data-theme="retro"] .result .port, [data-theme="retro"] .result .hint, [data-theme="retro"] .srv-status code,
+  [data-theme="retro"] .setup code { font-size: 17px; line-height: 1.15; letter-spacing: .02em; }
   [data-theme="retro"] .s-title h2, [data-theme="retro"] .toolbar h2, [data-theme="retro"] .dlg-h h2 { font: 15px/1.4 var(--display); }
   [data-theme="retro"] .glyph { font: 18px var(--display); }
   [data-theme="retro"] .tile .state, [data-theme="retro"] .pill b { font-family: var(--display); font-size: 9px; }
