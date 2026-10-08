@@ -65,12 +65,12 @@ const slug = (s) => String(s).toLowerCase().replace(/\(.*?\)/g, '').trim().repla
 const dataDir = env.DATA_DIR || path.join(__dirname, 'data');
 const storeFile = path.join(dataDir, 'config.json');
 const legacyFile = path.join(dataDir, 'apps.json');
-let store = { servers: [], apps: [], ignored: [] };
+let store = { servers: [], apps: [], ignored: [], plex: {} };
 
 function loadStore() {
   try { fs.mkdirSync(dataDir, { recursive: true }); } catch {}
   const file = fs.existsSync(storeFile) ? storeFile : fs.existsSync(legacyFile) ? legacyFile : null;
-  if (file) store = { servers: [], apps: [], ignored: [], ...JSON.parse(fs.readFileSync(file, 'utf8')) };
+  if (file) store = { servers: [], apps: [], ignored: [], plex: {}, ...JSON.parse(fs.readFileSync(file, 'utf8')) };
   // Optional: preconfigure servers via environment on first run.
   if (!store.servers.length) {
     if (env.UNRAID_HOST) store.servers.push({ id: 'unraid', type: 'unraid', name: env.UNRAID_NAME || 'Unraid', host: env.UNRAID_HOST, url: env.UNRAID_URL || '', apiKey: env.UNRAID_API_KEY || '' });
@@ -83,6 +83,22 @@ function loadStore() {
 function saveStore() {
   try { fs.writeFileSync(storeFile, JSON.stringify(store, null, 2)); }
   catch (e) { console.error(`! Can't save ${storeFile}: ${e.message} — changes will be lost on restart`); }
+}
+
+// Plex: saved settings win, environment variables are the fallback.
+const plexCfg = () => (store.plex?.url ? store.plex : cfg.plex);
+const PLEX_PORT = 32400;
+
+async function findPlex(host) {
+  const r = await probeHttp(`http://${host}:${PLEX_PORT}/identity`, 2000);
+  return r && /MediaContainer/.test(r.text) ? `http://${host}:${PLEX_PORT}` : null;
+}
+
+async function testPlex(url, token) {
+  try {
+    await fetchJson(`${url}/status/sessions?X-Plex-Token=${encodeURIComponent(token)}`, { headers: { Accept: 'application/json' } }, 4000);
+    return null;
+  } catch (e) { return /401/.test(e.message) ? 'Plex rejected the token' : e.message; }
 }
 
 const serverById = (id) => store.servers.find((s) => s.id === id);
@@ -104,8 +120,9 @@ const HEXOS_PORT = 43705; // HexOS serves its own UI here on top of TrueNAS
 async function detect(host) {
   const ports = [80, 443, 8080, 8443, HEXOS_PORT];
   const open = Object.fromEntries(await Promise.all(ports.map(async (p) => [p, (await tcpPing(host, p, 1500)) != null])));
-  const out = { host, reachable: Object.values(open).some(Boolean), type: null, flavor: null, url: null };
+  const out = { host, reachable: Object.values(open).some(Boolean), type: null, flavor: null, url: null, plex: null };
   if (!out.reachable) return out;
+  out.plex = await findPlex(host);
 
   if (open[443]) {
     // TrueNAS lists its API versions publicly; older releases answer the REST API with a plain-text 401.
@@ -294,8 +311,9 @@ async function runAll(tasks, out) {
 }
 
 async function plexStreams() {
-  if (!cfg.plex.url || !cfg.plex.token) return null;
-  const s = await settle(fetchJson(`${cfg.plex.url}/status/sessions?X-Plex-Token=${cfg.plex.token}`, { headers: { Accept: 'application/json' } }, 3000));
+  const p = plexCfg();
+  if (!p.url || !p.token) return null;
+  const s = await settle(fetchJson(`${p.url}/status/sessions?X-Plex-Token=${encodeURIComponent(p.token)}`, { headers: { Accept: 'application/json' } }, 3000));
   if (!s?.MediaContainer) return null;
   return { streams: (s.MediaContainer.Metadata || []).map((m) => ({
     title: m.grandparentTitle ? `${m.grandparentTitle} — ${m.title}` : m.title,
@@ -448,10 +466,37 @@ const server = http.createServer(async (req, res) => {
     if (route === 'GET /api/status') {
       const [list, plex] = await Promise.all([Promise.all(store.servers.map((s) => settle(statsFor[s.type](s)))), plexStreams()]);
       const out = list.filter(Boolean);
-      if (plex && out[0]) out[0].plex = plex;
+      if (plex && out.length) {
+        let host = null;
+        try { host = new URL(plexCfg().url).hostname; } catch {}
+        (out.find((x) => x.host === host) || out[0]).plex = plex;
+      }
       return send(res, 200, { time: Date.now(), servers: out });
     }
     if (route === 'GET /api/apps') return send(res, 200, { apps: appsPayload(), servers: store.servers.map(publicServer), interval: cfg.checkInterval });
+
+    // plex
+    if (route === 'GET /api/plex') {
+      const p = plexCfg();
+      let detected = null;
+      if (!p.url) for (const x of store.servers) if ((detected = await findPlex(x.host))) break;
+      return send(res, 200, { url: p.url || '', hasToken: !!p.token, detected });
+    }
+    if (route === 'PUT /api/plex') {
+      const b = await readBody(req);
+      const plex = { ...(store.plex || {}) };
+      if ('url' in b) plex.url = String(b.url || '').trim().replace(/\/+$/, '');
+      if (plex.url && !/^https?:\/\//i.test(plex.url)) plex.url = `http://${plex.url}`;
+      try { if (plex.url && !new URL(plex.url).port) plex.url += `:${PLEX_PORT}`; }
+      catch { return send(res, 400, { error: "That doesn't look like a Plex address" }); }
+      if (b.token) plex.token = String(b.token).trim();
+      if (b.clearToken || !plex.url) delete plex.token;
+      const tokenError = plex.url && plex.token && b.token ? await testPlex(plex.url, plex.token) : null;
+      if (tokenError) return send(res, 400, { error: tokenError });
+      store.plex = plex;
+      saveStore();
+      return send(res, 200, { url: plex.url || '', hasToken: !!plex.token });
+    }
 
     // servers
     if (route === 'GET /api/servers') return send(res, 200, { servers: store.servers.map(publicServer) });

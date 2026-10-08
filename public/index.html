@@ -282,6 +282,14 @@
   .add-srv { display: flex; align-items: center; justify-content: center; gap: 10px; min-height: 120px; border: 1px dashed var(--line); border-radius: 18px; background: none; color: var(--muted); font: 500 15px var(--sans); cursor: pointer; transition: .15s; }
   .add-srv:hover { color: var(--text); border-color: var(--muted); background: var(--tint); }
   .add-srv b { font-size: 22px; font-weight: 400; }
+  .plex-row { --accent: #e5a00d; margin-top: 12px; }
+  .plex-head { display: flex; align-items: center; gap: 10px; }
+  .plex-head img { width: 22px; height: 22px; }
+  .plex-head b { font-size: 15px; }
+  .plex-head span { color: var(--muted); font-size: 13px; }
+  .plex-row .srv-fields { grid-template-columns: 1fr 1fr; }
+  @media (max-width: 640px) { .plex-row .srv-fields { grid-template-columns: 1fr; } }
+  .plex-row code { font: 12px var(--mono); color: var(--accent); background: var(--tint-2); padding: 1px 5px; border-radius: 4px; }
   #srvDlg { width: min(820px, calc(100vw - 32px)); }
   #srvDlg .srv-row { background: var(--tint); }
   [hidden] { display: none !important; }
@@ -314,9 +322,13 @@
       <p>Tell me where your servers are. I'll work out whether each one runs Unraid or TrueNAS.</p>
     </div>
     <div class="srv-rows" id="setupRows"></div>
+    <div class="setup-actions" style="margin-top:12px">
+      <button class="btn" id="setupAdd">+ Add another server</button>
+    </div>
+    <div id="setupPlex"></div>
     <div class="form-error" id="setupError"></div>
     <div class="setup-actions">
-      <button class="btn" id="setupAdd">+ Add another server</button>
+      <span></span>
       <button class="btn primary" id="setupDone">Continue →</button>
     </div>
   </section>
@@ -344,7 +356,7 @@
       <button class="btn" id="srvAdd">+ Add server</button>
       <button class="btn" id="srvClose">✕</button>
     </div>
-    <div class="dlg-b"><div class="srv-rows" id="srvRows"></div></div>
+    <div class="dlg-b"><div class="srv-rows" id="srvRows"></div><div id="dlgPlex"></div></div>
   </dialog>
 
   <dialog id="scanDlg">
@@ -809,7 +821,12 @@ async function detectRow(row) {
     if (!field(row, 'type').value) field(row, 'type').value = d.type;
     if (!field(row, 'url').value) field(row, 'url').placeholder = d.url;
     row.querySelector('[data-hint]').innerHTML = keyHint(d.type, host);
-    setStatus(row, `<span class="ok">✓ Found ${esc(d.flavor)}</span> <code>${esc(d.url)}</code>`);
+    setStatus(row, `<span class="ok">✓ Found ${esc(d.flavor)}</span> <code>${esc(d.url)}</code>` + (d.plex ? ' · <span class="ok">Plex too</span>' : ''));
+    const plexUrl = $('#setupPlex [name="plexUrl"]');
+    if (d.plex && plexUrl && !plexUrl.value) {
+      plexUrl.value = d.plex;
+      $('#setupPlex [data-plex-status]').innerHTML = `<span class="ok">✓ Found Plex on ${esc(field(row, 'name').value || host)}</span> — paste your token to see what's playing.`;
+    }
   } catch (e) { setStatus(row, `<span class="bad">✕ ${esc(e.message)}</span>`); }
 }
 
@@ -854,6 +871,7 @@ function showSetup(on) {
   $('#summary').hidden = on;
   document.querySelector('footer').hidden = on;
   if (on && !$('#setupRows').children.length) {
+    $('#setupPlex').innerHTML = plexRow({});
     $('#setupRows').innerHTML = srvRow({}, 0);
     field($('#setupRows .srv-row'), 'name').focus();
   }
@@ -871,6 +889,7 @@ $('#setupDone').onclick = async () => {
   $('#setupDone').disabled = true;
   try {
     for (const row of rows) await saveRow(row);
+    if (!(await savePlex($('#setupPlex .plex-row')))) throw new Error('Fix the Plex token, or clear it to skip Plex for now.');
     showSetup(false);
     loadApps.sig = null;
     load(); loadApps();
@@ -878,10 +897,59 @@ $('#setupDone').onclick = async () => {
   finally { $('#setupDone').disabled = false; }
 };
 
+// plex (optional)
+const PLEX_HELP = 'Open Plex Web (e.g. <code>http://&lt;server&gt;:32400/web</code>) and sign in, press <b>F12</b> → <b>Console</b>, run <code>localStorage.myPlexAccessToken</code> and copy the value without the quotes.';
+
+function plexRow(p = {}, manage = false) {
+  return `<div class="srv-row plex-row">
+    <div class="plex-head"><img src="${ICONS}/svg/plex.svg" alt=""><b>Plex</b><span>Optional — shows what's playing right now</span></div>
+    <div class="srv-fields">
+      <label>Plex address<input name="plexUrl" value="${esc(p.url || '')}" placeholder="${esc(p.detected || 'e.g. http://192.168.1.10:32400')}" spellcheck="false" autocomplete="off"></label>
+      <label>Plex token<input name="plexToken" type="password" autocomplete="off" placeholder="${p.hasToken ? '•••••••• saved — paste a new one to replace' : 'Paste your Plex token'}"></label>
+    </div>
+    <div class="srv-status" data-plex-status>${p.hasToken ? '<span class="ok">✓ Connected</span>' : p.detected ? `<span class="ok">✓ Found Plex</span> <code>${esc(p.detected)}</code>` : ''}</div>
+    <details><summary>How do I find my Plex token?</summary><div class="srv-more"><div class="hint">${PLEX_HELP}</div></div></details>
+    ${manage ? `<div class="srv-foot"><span class="spacer"></span>${p.hasToken ? '<button class="btn danger" data-plex-clear>Disconnect</button>' : ''}<button class="btn primary" data-plex-save>Save</button></div>` : ''}
+  </div>`;
+}
+
+// Saves the Plex card in a container; returns true if there was nothing to save or it saved fine.
+async function savePlex(box) {
+  const url = (field(box, 'plexUrl').value.trim() || field(box, 'plexUrl').placeholder.replace(/^e\.g\. .*/, '')).trim();
+  const token = field(box, 'plexToken').value.trim();
+  const status = box.querySelector('[data-plex-status]');
+  if (!token && !field(box, 'plexUrl').value.trim()) return true;
+  if (token && !url) { status.innerHTML = '<span class="bad">✕ Enter the Plex address too.</span>'; return false; }
+  status.innerHTML = '<span>Checking Plex…</span>';
+  try {
+    const r = await api('PUT', '/api/plex', { url, token: token || undefined });
+    field(box, 'plexUrl').value = r.url;
+    field(box, 'plexToken').value = '';
+    if (r.hasToken) field(box, 'plexToken').placeholder = '•••••••• saved — paste a new one to replace';
+    status.innerHTML = r.hasToken ? '<span class="ok">✓ Connected to Plex</span>' : '<span class="ok">✓ Saved</span> · add a token to see what\'s playing';
+    return true;
+  } catch (e) { status.innerHTML = `<span class="bad">✕ ${esc(e.message)}</span>`; return false; }
+}
+
+async function renderPlex(target, manage) {
+  const p = await api('GET', '/api/plex').catch(() => ({}));
+  $(target).innerHTML = plexRow(p, manage);
+}
+
+$('#dlgPlex').addEventListener('click', async (e) => {
+  const box = $('#dlgPlex .plex-row');
+  if (e.target.closest('[data-plex-save]')) await savePlex(box);
+  if (e.target.closest('[data-plex-clear]')) {
+    await api('PUT', '/api/plex', { url: field(box, 'plexUrl').value.trim(), clearToken: true });
+    renderPlex('#dlgPlex', true);
+  }
+});
+
 // manage dialog
 async function openServers(addNew) {
   const { servers } = await api('GET', '/api/servers');
   $('#srvRows').innerHTML = servers.map((x, i) => srvRow(x, i, true)).join('');
+  renderPlex('#dlgPlex', true);
   if (addNew || !servers.length) addServerRow();
   $('#srvDlg').showModal();
 }

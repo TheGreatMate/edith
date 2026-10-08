@@ -15,7 +15,7 @@ Live status for your Unraid and HexOS / TrueNAS SCALE servers, plus an Apps boar
 
 **Anywhere else:** `docker compose up -d` with the same file.
 
-Then open `http://<host>:7575`. On first start EDITH asks for your servers — give each one a name and its IP address or hostname, and it works out whether it's running Unraid or TrueNAS (HexOS included). Add more with **+ Add another server**, or later from **⚙ Servers** or the **+ Add server** card.
+Then open `http://<host>:7575`. On first start EDITH asks for your servers — give each one a name and its IP address or hostname, and it works out whether it's running Unraid or TrueNAS (HexOS included). Add more with **+ Add another server**, or later from **⚙ Servers** or the **+ Add server** card. If one of them runs Plex, EDITH finds it too — paste your Plex token to see what's playing.
 
 The image `ghcr.io/thegreatmate/edith:latest` is rebuilt on every push to `main`. To update, redeploy the app (it pulls `latest` on start).
 
@@ -27,6 +27,10 @@ Without a key, a server card shows whether it's reachable. Add one in **⚙ Serv
 - **TrueNAS / HexOS:** `https://<server>/ui/` → user icon → API Keys → Add.
 
 Keys are checked when you save them, stored only in `data/config.json` on the machine running EDITH, and never sent back to the browser. EDITH has no login of its own, so run it on your LAN only.
+
+### Plex token
+
+Open Plex Web (`http://<server>:32400/web`) and sign in, press **F12** → **Console**, run `localStorage.myPlexAccessToken` and copy the value without the quotes. Paste it on the setup screen or in **⚙ Servers** → Plex. The token is tested when you save it and stored with your API keys.
 
 ## Apps
 
@@ -45,9 +49,8 @@ Dark, light and retro (pixel fonts, chunky borders, block meters). Defaults to y
 | --- | --- |
 | `PORT` | Web port (default 7575) |
 | `CHECK_INTERVAL` | Seconds between app health checks (default 30) |
-| `PLEX_URL`, `PLEX_TOKEN` | Optional — shows "Now playing" |
 | `DATA_DIR` | Where `config.json` is stored (default `./data`) |
-| `UNRAID_*`, `TRUENAS_*` | Advanced — preconfigure servers instead of using the setup screen (see `.env.example`) |
+| `UNRAID_*`, `TRUENAS_*`, `PLEX_*` | Advanced — preconfigure servers and Plex instead of using the setup screen (see `.env.example`) |
 
 ## Run locally
 
