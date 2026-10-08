@@ -15,3 +15,12 @@ services:
       - /mnt/POOL/apps/edith:/app/data
     environment:
       CHECK_INTERVAL: "30"
+
+# TrueNAS / HexOS only: adds the "Web UI" button to the app.
+# Set host to this server's IP. Only takes effect when the app is first installed.
+x-portals:
+  - name: Web UI
+    scheme: http
+    host: 192.168.1.20
+    port: 7575
+    path: /
