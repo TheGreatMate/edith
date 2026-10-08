@@ -179,7 +179,7 @@
   .gpu { border: 1px solid var(--line-soft); border-radius: 12px; padding: 12px 14px; background: var(--tint); display: grid; gap: 8px; }
   .gpu .row { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
   .gpu .n { font-weight: 600; font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .gpu .sub { font: 11px var(--mono); color: var(--muted); }
+  .gpu .sub { font: 11px var(--mono); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .gpu .gauge { display: grid; grid-template-columns: 44px 1fr auto; align-items: center; gap: 8px; font: 11.5px var(--mono); color: var(--muted); }
   .gpu .gauge .bar { margin: 0; height: 6px; }
   .gpu .gauge b { color: var(--text); font-weight: 500; min-width: 64px; text-align: right; }
@@ -457,6 +457,18 @@ function stat(p, lbl, big, small, ringLabel) {
 
 function tempClass(t) { return t == null ? 'idle' : t >= 50 ? 'hot' : t >= 42 ? 'warm' : 'cool'; }
 
+function cpuCard(c, i) {
+  const util = c.usage != null ? Math.round(c.usage) : null;
+  const barCls = (p) => (p > 90 ? 'crit' : p > 75 ? 'hi' : '');
+  const tc = c.temp == null ? 'idle' : c.temp >= 85 ? 'hot' : c.temp >= 70 ? 'warm' : 'cool';
+  return `<div class="gpu">
+    <div class="row"><span class="n" title="${esc(c.model || '')}">CPU ${i + 1}</span><span class="t ${tc}">${c.temp != null ? Math.round(c.temp) + '°C' : ''}</span></div>
+    <div class="sub" title="${esc(c.model || '')}">${esc(c.model || '')}</div>
+    <div class="gauge"><span>Load</span><div class="bar"><i class="${barCls(util)}" style="width:${util ?? 0}%"></i></div><b>${util != null ? util + '%' : '—'}</b></div>
+    <div class="facts">${c.cores ? `<span>Cores <b>${c.cores}c / ${c.threads}t</b></span>` : ''}${c.power != null ? `<span>Power <b>${Math.round(c.power)} W</b></span>` : ''}</div>
+  </div>`;
+}
+
 function gpuCard(g) {
   const util = g.util != null ? Math.round(g.util) : null;
   const mem = pct(g.memUsed, g.memTotal);
@@ -508,7 +520,8 @@ function render(s, idx) {
 
   const stats = [
     stat(cpu.usage, 'CPU', cpu.usage != null ? Math.round(cpu.usage) + '%' : '—',
-      cpu.load ? `load ${cpu.load.map((l) => l.toFixed(2)).join(' ')}` : cpu.threads ? `${cpu.cores}c / ${cpu.threads}t` : esc(cpu.model)),
+      cpu.load ? `load ${cpu.load.map((l) => l.toFixed(2)).join(' ')}`
+        : cpu.threads ? `${cpu.sockets?.length > 1 ? cpu.sockets.length + ' CPUs · ' : ''}${cpu.cores}c / ${cpu.threads}t` : esc(cpu.model)),
     stat(memP, 'Memory', mem.used != null ? bytes(mem.used) : bytes(mem.total), mem.used != null ? `of ${bytes(mem.total)}` : mem.total ? 'installed' : ''),
     stat(arrP, s.type === 'truenas' ? 'Pools free' : 'Storage free', arr.total ? bytes(arr.free) : '—', arr.total ? `of ${bytes(arr.total)}` : esc(arr.state || '')),
     stat(maxT != null ? Math.min(100, (maxT / 60) * 100) : null, 'Hottest disk', maxT != null ? maxT + '°C' : '—', temps.length ? `${temps.length} disks reporting` : '', maxT != null ? maxT + '°' : '—'),
@@ -530,6 +543,12 @@ function render(s, idx) {
     <div class="stats">${stats}</div>
 
     ${!s.configured ? setupCard(s) : ''}
+
+    ${(() => {
+      const sk = s.cpu?.sockets || [];
+      if (!(sk.length > 1 || sk.some((c) => c.temp != null || c.power != null))) return '';
+      return `<h3>${sk.length > 1 ? 'CPUs' : 'CPU'} <span class="count">${sk.length}${s.cpu.power ? ` · ${Math.round(s.cpu.power)} W total` : ''}</span></h3><div class="gpus">${sk.map(cpuCard).join('')}</div>`;
+    })()}
 
     ${s.gpus?.length ? `<h3>${s.gpus.length > 1 ? 'GPUs' : 'GPU'} <span class="count">${s.gpus.length}</span></h3><div class="gpus">${s.gpus.map(gpuCard).join('')}</div>` : ''}
 
@@ -596,7 +615,7 @@ function demo() {
   const T = 1e12;
   return { time: Date.now(), servers: [
     { id: 'unraid', type: 'unraid', name: 'Tower', os: 'Unraid', version: '7.2.0', host: '10.0.0.10', ui: '#', online: true, configured: true, latency: 1, uptime: 1234567,
-      cpu: { usage: r(5, 40), cores: 8, threads: 16 }, memory: { total: 64e9, used: r(20e9, 40e9) },
+      cpu: { usage: r(5, 40), cores: 16, threads: 32, power: 142, sockets: [0, 1].map((i) => ({ model: 'Intel Xeon E5-2667 v4', cores: 8, threads: 16, usage: r(5, 50), temp: 48 + i * 6.4, power: 68 + i * 6 })) }, memory: { total: 64e9, used: r(20e9, 40e9) },
       array: { state: 'STARTED', total: 40 * T, used: 26.4 * T, free: 13.6 * T },
       disks: [['parity', 'parity', 0, 16 * T, 36], ['disk1', 'data', 7.2 * T, 12 * T, 38], ['disk2', 'data', 9.9 * T, 12 * T, null], ['disk3', 'data', 9.3 * T, 16 * T, 41], ['cache', 'pool', .6 * T, 2 * T, 46.7]]
         .map(([name, role, used, total, temp]) => ({ name, role, used: role === 'parity' ? null : used, total: role === 'parity' ? null : total, size: total, temp })),

@@ -477,8 +477,12 @@ async function unraid(s) {
   const r = await runAll({
     os: q('{ info { os { hostname uptime distro release kernel } } }'),
     version: q('{ info { versions { core { unraid } } } }', '{ info { versions { unraid } } }'),
-    cpu: q('{ info { cpu { manufacturer brand cores threads } } }'),
+    cpu: q(
+      '{ info { cpu { manufacturer brand cores threads processors topology packages { totalPower power temp } } } }',
+      '{ info { cpu { manufacturer brand cores threads processors } } }',
+      '{ info { cpu { manufacturer brand cores threads } } }'),
     metrics: q(
+      '{ metrics { cpu { percentTotal cpus { percentTotal } } memory { total used available percentTotal } } }',
       '{ metrics { cpu { percentTotal } memory { total used available percentTotal } } }',
       '{ metrics { cpu { percentTotal } memory { total used percentTotal } } }',
       '{ info { memory { total used free available } } }'),
@@ -502,6 +506,29 @@ async function unraid(s) {
   const cp = r.cpu?.info?.cpu;
   if (cp) out.cpu = { model: [cp.manufacturer, cp.brand].filter(Boolean).join(' '), cores: cp.cores, threads: cp.threads };
   const m = r.metrics;
+  if (cp) {
+    // Multi-socket: topology lists each package's cores as [thread, thread] pairs, so per-thread
+    // load from metrics can be averaged per physical CPU. Temperature and power come per package.
+    const topo = Array.isArray(cp.topology) ? cp.topology.filter((p) => Array.isArray(p) && p.length) : [];
+    const perThread = m?.metrics?.cpu?.cpus || [];
+    const pk = cp.packages || {};
+    const count = topo.length || cp.processors || 1;
+    out.cpu.sockets = Array.from({ length: count }, (_, i) => {
+      const threads = (topo[i] || []).flat();
+      const loads = threads.map((t) => perThread[t]?.percentTotal).filter((x) => x != null);
+      return {
+        model: out.cpu.model,
+        cores: topo[i] ? topo[i].length : null, threads: topo[i] ? threads.length : null,
+        usage: loads.length ? loads.reduce((a, b) => a + b, 0) / loads.length : null,
+        temp: pk.temp?.[i] ?? null, power: pk.power?.[i] ?? null,
+      };
+    });
+    if (topo.length) { // totals straight from the topology, whatever the API means by cores/threads
+      out.cpu.cores = topo.reduce((n, p) => n + p.length, 0);
+      out.cpu.threads = topo.reduce((n, p) => n + p.flat().length, 0);
+    }
+    if (pk.totalPower) out.cpu.power = pk.totalPower;
+  }
   if (m?.metrics) {
     out.cpu = { ...(out.cpu || {}), usage: m.metrics.cpu?.percentTotal ?? null };
     // "used" counts the page cache; total - available is what's actually in use.
