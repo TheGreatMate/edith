@@ -261,11 +261,16 @@ function unraidWebUi(tpl, host, ports) {
     .replace(/\[PORT:(\d+)\]/gi, (_, p) => String(ports.find((x) => x.privatePort === +p)?.publicPort || p));
 }
 
+// A container's own IP is only reachable from the LAN on macvlan/ipvlan networks (Unraid br0/eth0).
+// Custom bridge networks (e.g. a user-made "proxynet") hand out Docker-internal 172.16–31.x addresses.
+const dockerInternal = (ip) => /^172.(1[6-9]|2d|3[01])./.test(ip);
+
 function containerIp(c) {
   const mode = c.hostConfig?.networkMode || '';
   if (!mode || /^(bridge|host|default)$/.test(mode) || mode.startsWith('container:')) return null;
   const nets = c.networkSettings?.Networks || c.networkSettings?.networks || {};
-  return Object.values(nets).map((n) => n?.IPAddress || n?.ipAddress).find(Boolean) || null;
+  const ip = Object.values(nets).map((n) => n?.IPAddress || n?.ipAddress).find(Boolean);
+  return ip && !dockerInternal(ip) ? ip : null;
 }
 
 async function unraidContainerApps(s) {
@@ -277,10 +282,14 @@ async function unraidContainerApps(s) {
     const name = (c.names?.[0] || '').replace(/^\//, '');
     const ports = (c.ports || []).filter((p) => p.publicPort && String(p.type || 'tcp').toLowerCase() === 'tcp')
       .map((p) => ({ privatePort: +p.privatePort, publicPort: +p.publicPort }));
-    const ip = containerIp(c);
+    // Published ports are reached through the server's IP; only portless containers use their own IP.
+    const ip = ports.length ? null : containerIp(c);
     const host = ip || s.host;
     const labels = c.labels || {};
-    let link = unraidWebUi(labels['net.unraid.docker.webui'], host, ports);
+    // On a custom bridge network with nothing published, the web UI isn't reachable from the LAN.
+    const mode = c.hostConfig?.networkMode || '';
+    const unreachable = !ports.length && !ip && mode && !/^(host|bridge|default)$/.test(mode) && !mode.startsWith('container:');
+    let link = unreachable ? null : unraidWebUi(labels['net.unraid.docker.webui'], host, ports);
     if (!link && ports.length) link = `http://${host}:${ports[0].publicPort}/`;
     let u = null;
     try { u = link ? new URL(link) : null; } catch {}
