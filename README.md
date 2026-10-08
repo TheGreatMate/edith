@@ -36,10 +36,11 @@ Open Plex Web (`http://<server>:32400/web`) and sign in, press **F12** → **Con
 
 ## Apps
 
-- **Scan for apps** checks every TCP port on a server, names what it finds (page title, headers, well-known ports) and lets you **Add** or **Ignore** each one.
+- Your **Unraid containers and HexOS / TrueNAS apps** appear automatically once a server has an API key — with their real names, icons and the web UI address from the container template (Unraid) or app portal (TrueNAS).
+- Each one is health-checked: **up** / **down** for its web UI, **stopped** when the container isn't running.
 - **Favorites** is the default view. Tap ☆ on any app to pin it; **View all** shows everything.
-- **Edit** shows × buttons to stop tracking an app.
-- Icons come from [dashboard-icons](https://github.com/homarr-labs/dashboard-icons) by name; edit `icon` in `data/config.json` to change one.
+- **Edit** → × hides a container from the board (↺ brings it back) or removes a service you added by port.
+- **+ Add by port** scans every TCP port on a server for things that aren't containers (SMB shares, RustDesk, …) and lets you **Add** or **Ignore** each one.
 
 ## Themes
 

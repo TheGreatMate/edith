@@ -247,6 +247,11 @@
   .tile .foot { display: flex; justify-content: space-between; font: 10.5px var(--mono); color: var(--faint); }
   .tile .rm { position: absolute; top: -7px; right: -7px; width: 22px; height: 22px; border-radius: 50%; border: 1px solid var(--line); background: var(--panel-solid); color: var(--bad); cursor: pointer; display: none; font: 600 13px/1 var(--sans); }
   .editing .tile .rm { display: block; }
+  .tile .state b.stop { color: var(--faint); }
+  .tile.stopped .nm, .tile.stopped .ico { opacity: .55; }
+  .tile.hidden-app { opacity: .4; border-style: dashed; }
+  .tile.hidden-app .rm { color: var(--ok); }
+  .tile .src { font-size: 10px; color: var(--faint); text-transform: uppercase; letter-spacing: .08em; }
   .tile .foot { align-items: center; }
   .tile .star { border: 0; background: none; padding: 0 4px 0 0; margin: -4px 0; color: var(--faint); cursor: pointer; font: 14px/1 var(--sans); transition: color .15s, transform .15s; }
   .tile .star:hover { color: var(--star); transform: scale(1.2); }
@@ -368,7 +373,7 @@
         <button data-f="fav">★ Favorites</button><button data-f="all">All</button>
       </div>
       <button class="btn" id="editBtn">Edit</button>
-      <button class="btn primary" id="scanBtn">⟳ Scan for apps</button>
+      <button class="btn" id="scanBtn" title="Find services that aren't containers (SMB, RustDesk, …) by scanning ports">+ Add by port</button>
     </div>
     <div class="tiles" id="tiles"></div>
   </section>
@@ -615,11 +620,16 @@ try { filter = localStorage.getItem('appFilter') || 'fav'; } catch { filter = 'f
 
 const ICONS = 'https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons';
 function iconFail(img) {
-  // svg -> png -> letter tile
-  if (img.dataset.step !== 'png') { img.dataset.step = 'png'; img.src = `${ICONS}/png/${img.dataset.icon}.png`; return; }
+  // server-provided icon -> dashboard-icons svg -> png -> letter tile
+  const step = img.dataset.step;
+  if (step === 'url') { img.dataset.step = 'svg'; img.src = `${ICONS}/svg/${img.dataset.icon}.svg`; return; }
+  if (step === 'svg') { img.dataset.step = 'png'; img.src = `${ICONS}/png/${img.dataset.icon}.png`; return; }
   img.replaceWith(document.createTextNode(img.alt[0] || '?'));
 }
-const icon = (a) => `<span class="ico"><img src="${ICONS}/svg/${esc(a.icon || '')}.svg" data-icon="${esc(a.icon || '')}" alt="${esc(a.name)}" loading="lazy" onerror="iconFail(this)"></span>`;
+const icon = (a) => {
+  const first = a.iconUrl && /^https?:\/\//.test(a.iconUrl);
+  return `<span class="ico"><img src="${first ? esc(a.iconUrl) : `${ICONS}/svg/${esc(a.icon || '')}.svg`}" data-step="${first ? 'url' : 'svg'}" data-icon="${esc(a.icon || '')}" alt="${esc(a.name)}" loading="lazy" referrerpolicy="no-referrer" onerror="iconFail(this)"></span>`;
+};
 
 function ago(t) {
   if (!t) return 'pending';
@@ -637,17 +647,22 @@ function spark(h) {
 }
 
 function tile(a) {
-  const st = a.up == null ? ['pend', 'checking'] : !a.up ? ['down', 'down'] : a.degraded ? ['deg', `http ${a.code}`] : ['up', 'up'];
-  const tag = a.link ? 'a' : 'div';
-  const addr = `${a.host}:${a.port}${a.tcp ? ' · tcp' : ''}`;
-  return `<${tag} style="--accent:${accentOf(a.server)}" class="tile ${a.up === false ? 'down' : ''} ${a.favorite ? 'fav' : ''}" ${a.link ? `href="${esc(a.link)}" target="_blank" rel="noopener"` : ''}>
+  const stopped = a.state && a.state !== 'running';
+  const st = stopped ? ['stop', a.state === 'deploying' ? 'starting' : 'stopped']
+    : a.up == null ? ['pend', 'checking'] : !a.up ? ['down', 'down'] : a.degraded ? ['deg', `http ${a.code}`] : ['up', 'up'];
+  const tag = a.link && !editing ? 'a' : 'div';
+  const addr = a.port ? `${a.host}:${a.port}${a.tcp ? ' · tcp' : ''}` : a.source === 'container' ? 'no web UI' : a.host;
+  const cls = [stopped ? 'stopped' : a.up === false ? 'down' : '', a.favorite ? 'fav' : '', a.hidden ? 'hidden-app' : ''].join(' ');
+  return `<${tag} style="--accent:${accentOf(a.server)}" class="tile ${cls}" ${tag === 'a' ? `href="${esc(a.link)}" target="_blank" rel="noopener"` : ''}>
     <div class="top">${icon(a)}
       <div class="info"><div class="nm">${esc(a.name)}</div><div class="addr">${esc(addr)}</div></div>
       <div class="state"><b class="${st[0]}">${st[1]}</b>${a.ms != null ? a.ms + 'ms' : ''}</div>
     </div>
     ${spark(a.history || [])}
     <div class="foot"><span><button class="star" data-star="${esc(a.id)}" title="${a.favorite ? 'Remove from' : 'Add to'} favorites">${a.favorite ? '★' : '☆'}</button>${a.uptime != null ? (a.uptime * 100).toFixed(a.uptime === 1 ? 0 : 1) + '% up' : ''}</span><span>${ago(a.checked)}</span></div>
-    <button class="rm" data-rm="${esc(a.id)}" title="Remove ${esc(a.name)}">×</button>
+    ${a.hidden
+      ? `<button class="rm" data-restore="${esc(a.id)}" title="Show ${esc(a.name)} again">↺</button>`
+      : `<button class="rm" data-rm="${esc(a.id)}" title="${a.source === 'container' ? 'Hide' : 'Remove'} ${esc(a.name)}">×</button>`}
   </${tag}>`;
 }
 
@@ -667,17 +682,20 @@ function renderApps() {
     return;
   }
   if (filter !== 'fav' && filter !== 'all' && !serverList.some((x) => x.id === filter)) filter = 'fav';
-  const list = apps.filter((a) => filter === 'all' || (filter === 'fav' ? a.favorite : a.server === filter));
+  const visible = apps.filter((a) => editing || !a.hidden);
+  const list = visible.filter((a) => filter === 'all' || (filter === 'fav' ? a.favorite && !a.hidden : a.server === filter));
   const up = list.filter((a) => a.up).length;
-  const down = apps.filter((a) => a.up === false).length;
+  const down = apps.filter((a) => !a.hidden && a.up === false && (!a.state || a.state === 'running')).length;
   $('#appCount').textContent = `${up}/${list.length} up${filter === 'fav' && down ? ` · ${down} down overall` : ''}`;
   let html = list.map(tile).join('');
-  if (!apps.length) {
-    html = `<div class="empty-fav">No apps tracked yet. Scan a server to find the web apps and services running on it. <button class="btn primary" data-scan-now>⟳ Scan for apps</button></div>`;
+  if (!visible.length) {
+    const noKey = serverList.some((x) => !x.hasKey);
+    html = `<div class="empty-fav">${noKey ? 'Add an API key in ⚙ Servers and your containers and apps show up here automatically.' : 'No containers or apps found yet.'}
+      You can also add other services by port. <button class="btn" data-scan-now>+ Add by port</button></div>`;
   } else if (filter === 'fav') {
     html = list.length
-      ? html + `<button class="viewall" data-f="all">View all ${apps.length} apps →</button>`
-      : `<div class="empty-fav">No favorites yet. Tap ☆ on any app to pin it here. <button class="btn" data-f="all">View all ${apps.length} apps</button></div>`;
+      ? html + `<button class="viewall" data-f="all">View all ${visible.length} apps →</button>`
+      : `<div class="empty-fav">No favorites yet. Tap ☆ on any app to pin it here. <button class="btn" data-f="all">View all ${visible.length} apps</button></div>`;
   } else if (!list.length) html = '<div class="empty">No apps yet — try a scan.</div>';
   $('#tiles').innerHTML = html;
   document.querySelectorAll('#filter button').forEach((b) => b.classList.toggle('on', b.dataset.f === filter));
@@ -686,7 +704,7 @@ function renderApps() {
 async function loadApps() {
   try {
     const r = await (await fetch('/api/apps', { cache: 'no-store' })).json();
-    const sig = JSON.stringify([r.servers, r.apps.map((a) => [a.id, a.name, a.favorite, a.checked])]);
+    const sig = JSON.stringify([r.servers, r.apps.map((a) => [a.id, a.name, a.favorite, a.hidden, a.state, a.checked])]);
     if (sig === loadApps.sig) return; // nothing new; don't rebuild tiles under the cursor
     loadApps.sig = sig;
     apps = r.apps;
@@ -703,6 +721,7 @@ $('#editBtn').onclick = () => {
   $('#appsPanel').classList.toggle('editing', editing);
   $('#editBtn').classList.toggle('on', editing);
   $('#editBtn').textContent = editing ? 'Done' : 'Edit';
+  renderApps();
 };
 function setFilter(f) {
   filter = f; try { localStorage.setItem('appFilter', f); } catch {}
@@ -720,12 +739,18 @@ $('#tiles').onclick = async (e) => {
     await fetch(`/api/apps/${encodeURIComponent(star)}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ favorite: a.favorite }) });
     return;
   }
+  const restore = e.target.dataset.restore;
+  if (restore) {
+    e.preventDefault();
+    await fetch(`/api/apps/${encodeURIComponent(restore)}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ hidden: false }) });
+    loadApps.sig = null; return loadApps();
+  }
   const id = e.target.dataset.rm; if (!id) return;
   e.preventDefault();
   const a = apps.find((x) => x.id === id);
-  if (!confirm(`Stop tracking ${a?.name || id}?`)) return;
+  if (a?.source !== 'container' && !confirm(`Stop tracking ${a?.name || id}?`)) return;
   await fetch(`/api/apps/${encodeURIComponent(id)}`, { method: 'DELETE' });
-  loadApps();
+  loadApps.sig = null; loadApps();
 };
 
 // --- scanning -------------------------------------------------------------

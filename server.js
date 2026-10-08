@@ -65,12 +65,12 @@ const slug = (s) => String(s).toLowerCase().replace(/\(.*?\)/g, '').trim().repla
 const dataDir = env.DATA_DIR || path.join(__dirname, 'data');
 const storeFile = path.join(dataDir, 'config.json');
 const legacyFile = path.join(dataDir, 'apps.json');
-let store = { servers: [], apps: [], ignored: [], plex: {} };
+let store = { servers: [], apps: [], ignored: [], plex: {}, prefs: {} };
 
 function loadStore() {
   try { fs.mkdirSync(dataDir, { recursive: true }); } catch {}
   const file = fs.existsSync(storeFile) ? storeFile : fs.existsSync(legacyFile) ? legacyFile : null;
-  if (file) store = { servers: [], apps: [], ignored: [], plex: {}, ...JSON.parse(fs.readFileSync(file, 'utf8')) };
+  if (file) store = { servers: [], apps: [], ignored: [], plex: {}, prefs: {}, ...JSON.parse(fs.readFileSync(file, 'utf8')) };
   // Optional: preconfigure servers via environment on first run.
   if (!store.servers.length) {
     if (env.UNRAID_HOST) store.servers.push({ id: 'unraid', type: 'unraid', name: env.UNRAID_NAME || 'Unraid', host: env.UNRAID_HOST, url: env.UNRAID_URL || '', apiKey: env.UNRAID_API_KEY || '' });
@@ -172,19 +172,57 @@ function appUrl(a) {
   return `${a.scheme || 'http'}://${hostOf(a.server)}:${a.port}${a.path || ''}`;
 }
 
-async function checkApp(a) {
-  const host = hostOf(a.server);
-  if (!host) return;
-  const ms = await tcpPing(host, a.port, 2000);
-  let code = null;
-  if (ms != null && !a.tcp) {
-    const r = await probeHttp(`${a.scheme || 'http'}://${host}:${a.port}${a.path || '/'}`, 4000);
-    code = r?.status ?? null;
+// Container apps come from the server APIs; manual apps (added from a port scan) from the store.
+// Container apps are rebuilt every check, so per-app choices (favorite, hidden) live in store.prefs.
+const containerApps = new Map(); // serverId -> [app]
+
+async function refreshContainers() {
+  await Promise.all(store.servers.map(async (s) => {
+    if (!s.apiKey) return containerApps.delete(s.id);
+    const list = await settle(s.type === 'unraid' ? unraidContainerApps(s) : truenasContainerApps(s));
+    if (list) containerApps.set(s.id, list); // keep the last good list if the API hiccups
+  }));
+}
+
+function allApps() {
+  const prefs = store.prefs || {};
+  const list = [];
+  const byPort = new Map(); // "server-port" -> container app, to merge scanned duplicates
+  for (const s of store.servers) {
+    for (const c of containerApps.get(s.id) || []) {
+      const app = { ...c, ...(prefs[c.id] || {}) };
+      list.push(app);
+      for (const p of c.ports) byPort.set(`${s.id}-${p}`, app);
+    }
   }
+  for (const a of store.apps) {
+    if (!hostOf(a.server)) continue;
+    const twin = byPort.get(`${a.server}-${a.port}`);
+    if (twin) { if (a.favorite && prefs[twin.id]?.favorite === undefined) twin.favorite = true; continue; }
+    list.push({ ...a, source: 'manual', host: hostOf(a.server), link: appUrl(a) });
+  }
+  return list;
+}
+
+async function checkApp(a) {
   const h = health.get(a.id) || { history: [] };
+  let ms = null, code = null;
+  if (a.state && a.state !== 'running') {
+    // Stopped on purpose: not an outage, so don't add it to the uptime history.
+    Object.assign(h, { up: false, degraded: false, ms: null, code: null, checked: Date.now() });
+    return health.set(a.id, h);
+  } else if (a.port) {
+    ms = await tcpPing(a.host, a.port, 2000);
+    if (ms != null && !a.tcp) {
+      const r = await probeHttp(`${a.scheme || 'http'}://${a.host}:${a.port}${a.path || '/'}`, 4000);
+      code = r?.status ?? null;
+    }
+  } else if (a.state === 'running') {
+    ms = 0; // running container without a published port: trust the container state
+  }
   h.up = ms != null;
   h.degraded = h.up && code != null && code >= 500;
-  h.ms = ms; h.code = code; h.checked = Date.now();
+  h.ms = a.port ? ms : null; h.code = code; h.checked = Date.now();
   h.history = [...h.history, h.up ? (h.degraded ? -1 : ms) : null].slice(-HISTORY);
   health.set(a.id, h);
 }
@@ -193,20 +231,89 @@ let checking = false;
 async function checkAll() {
   if (checking) return;
   checking = true;
-  try { await Promise.all(store.apps.map(checkApp)); } finally { checking = false; }
+  try {
+    await refreshContainers();
+    await Promise.all(allApps().filter((a) => !a.hidden).map(checkApp));
+  } finally { checking = false; }
 }
 
 function appsPayload() {
-  return store.apps.filter((a) => hostOf(a.server)).map((a) => {
+  return allApps().map((a) => {
     const h = health.get(a.id) || { history: [] };
     const seen = h.history.filter((x) => x !== undefined);
     const upCount = seen.filter((x) => x !== null).length;
     return {
-      ...a, host: hostOf(a.server), link: appUrl(a),
+      ...a,
       up: h.up ?? null, degraded: !!h.degraded, ms: h.ms ?? null, code: h.code ?? null, checked: h.checked ?? null,
       history: h.history, uptime: seen.length ? upCount / seen.length : null,
     };
   });
+}
+
+// --- container apps: Unraid ---------------------------------------------------
+// Unraid templates carry the web UI and icon as labels, e.g.
+//   net.unraid.docker.webui = "http://[IP]:[PORT:8096]/web"   net.unraid.docker.icon = "https://…/jellyfin.png"
+function unraidWebUi(tpl, host, ports) {
+  if (!tpl) return null;
+  return tpl
+    .replace(/\[IP\]/gi, host)
+    .replace(/\[PORT:(\d+)\]/gi, (_, p) => String(ports.find((x) => x.privatePort === +p)?.publicPort || p));
+}
+
+function containerIp(c) {
+  const mode = c.hostConfig?.networkMode || '';
+  if (!mode || /^(bridge|host|default)$/.test(mode) || mode.startsWith('container:')) return null;
+  const nets = c.networkSettings?.Networks || c.networkSettings?.networks || {};
+  return Object.values(nets).map((n) => n?.IPAddress || n?.ipAddress).find(Boolean) || null;
+}
+
+async function unraidContainerApps(s) {
+  const data = await unraidQuery(s,
+    '{ docker { containers { names state status image labels ports { privatePort publicPort type } hostConfig { networkMode } networkSettings } } }',
+    '{ docker { containers { names state status image labels ports { privatePort publicPort type } } } }',
+    '{ docker { containers { names state status image ports { privatePort publicPort type } } } }');
+  return (data?.docker?.containers || []).map((c) => {
+    const name = (c.names?.[0] || '').replace(/^\//, '');
+    const ports = (c.ports || []).filter((p) => p.publicPort && String(p.type || 'tcp').toLowerCase() === 'tcp')
+      .map((p) => ({ privatePort: +p.privatePort, publicPort: +p.publicPort }));
+    const ip = containerIp(c);
+    const host = ip || s.host;
+    const labels = c.labels || {};
+    let link = unraidWebUi(labels['net.unraid.docker.webui'], host, ports);
+    if (!link && ports.length) link = `http://${host}:${ports[0].publicPort}/`;
+    let u = null;
+    try { u = link ? new URL(link) : null; } catch {}
+    const port = u ? +u.port || (u.protocol === 'https:' ? 443 : 80) : null;
+    return {
+      id: `${s.id}~${slug(name)}`, source: 'container', server: s.id, name,
+      state: String(c.state || '').toLowerCase(), status: c.status, image: c.image,
+      host: u?.hostname || host, port, scheme: u ? u.protocol.replace(':', '') : 'http', path: u ? u.pathname + u.search : '/',
+      ports: [...new Set([port, ...ports.map((p) => p.publicPort)].filter(Boolean))],
+      link, iconUrl: labels['net.unraid.docker.icon'] || null, icon: slug(name),
+    };
+  }).sort((a, b) => a.name.localeCompare(b.name));
+}
+
+// --- container apps: TrueNAS / HexOS ---------------------------------------------
+async function truenasContainerApps(s) {
+  const apps = await truenasApi(s, 'app');
+  return (Array.isArray(apps) ? apps : []).map((a) => {
+    const portal = Object.values(a.portals || {})[0] || null;
+    const link = portal ? portal.replace(/\/\/(0\.0\.0\.0|\[::\]|localhost)(?=[:/]|$)/, `//${s.host}`) : null;
+    let u = null;
+    try { u = link ? new URL(link) : null; } catch {}
+    const used = (a.active_workloads?.used_ports || []).flatMap((p) => (p.host_ports || []).map((h) => +h.host_port)).filter(Boolean);
+    const port = u ? +u.port || (u.protocol === 'https:' ? 443 : 80) : used[0] || null;
+    const state = String(a.state || '').toLowerCase();
+    return {
+      id: `${s.id}~${slug(a.name)}`, source: 'container', server: s.id, name: a.name,
+      state: state === 'running' ? 'running' : state === 'deploying' ? 'deploying' : 'stopped', status: a.human_version || a.version,
+      host: u?.hostname || s.host, port, scheme: u ? u.protocol.replace(':', '') : 'http', path: u ? u.pathname + u.search : '/',
+      ports: [...new Set([port, ...used].filter(Boolean))],
+      link: link || (port ? `http://${s.host}:${port}/` : null), iconUrl: a.metadata?.icon || null, icon: slug(a.name),
+      upgrade: !!a.upgrade_available,
+    };
+  }).sort((a, b) => a.name.localeCompare(b.name));
 }
 
 // --- port scanner -----------------------------------------------------------
@@ -257,7 +364,7 @@ async function runScan(server) {
     scan.found = [...open];
   }
   scan.phase = 'Identifying services';
-  const tracked = new Set(store.apps.filter((a) => a.server === server).map((a) => a.port));
+  const tracked = new Set(allApps().filter((a) => a.server === server).flatMap((a) => a.ports || [a.port]));
   const ignored = new Set(store.ignored.filter((i) => i.server === server).map((i) => i.port));
   let done = 0;
   const results = await Promise.all(open.map(async (port) => {
@@ -560,6 +667,7 @@ const server = http.createServer(async (req, res) => {
       store.servers.push(s);
       saveStore();
       const keyError = s.apiKey ? await testKey(s) : null;
+      checkAll();
       return send(res, 201, { server: publicServer(s), keyError });
     }
     if (req.method === 'PATCH' && url.pathname.startsWith('/api/servers/')) {
@@ -576,6 +684,7 @@ const server = http.createServer(async (req, res) => {
       if (b.clearAgentToken) delete s.agentToken;
       saveStore();
       const keyError = b.apiKey ? await testKey(s) : null;
+      checkAll();
       return send(res, 200, { server: publicServer(s), keyError });
     }
     if (req.method === 'DELETE' && url.pathname.startsWith('/api/servers/')) {
@@ -584,6 +693,8 @@ const server = http.createServer(async (req, res) => {
       store.apps.filter((a) => a.server === id).forEach((a) => health.delete(a.id));
       store.apps = store.apps.filter((a) => a.server !== id);
       store.ignored = store.ignored.filter((i) => i.server !== id);
+      for (const k of Object.keys(store.prefs)) if (k.startsWith(`${id}~`)) delete store.prefs[k];
+      containerApps.delete(id);
       saveStore();
       return send(res, 200, { ok: true });
     }
@@ -605,9 +716,17 @@ const server = http.createServer(async (req, res) => {
       return send(res, 201, app);
     }
     if (req.method === 'PATCH' && url.pathname.startsWith('/api/apps/')) {
-      const app = store.apps.find((a) => a.id === idFrom('/api/apps/'));
-      if (!app) return send(res, 404, { error: 'not found' });
+      const id = idFrom('/api/apps/');
       const b = await readBody(req);
+      if (id.includes('~')) { // container app: remember the choice in prefs
+        const p = (store.prefs[id] ||= {});
+        if ('favorite' in b) { if (b.favorite) p.favorite = true; else p.favorite = false; }
+        if ('hidden' in b) { if (b.hidden) p.hidden = true; else delete p.hidden; }
+        saveStore();
+        return send(res, 200, { id, ...p });
+      }
+      const app = store.apps.find((a) => a.id === id);
+      if (!app) return send(res, 404, { error: 'not found' });
       if ('favorite' in b) { if (b.favorite) app.favorite = true; else delete app.favorite; }
       if (b.name) app.name = String(b.name).slice(0, 60);
       if (b.icon) app.icon = String(b.icon).slice(0, 60);
@@ -616,6 +735,7 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === 'DELETE' && url.pathname.startsWith('/api/apps/')) {
       const id = idFrom('/api/apps/');
+      if (id.includes('~')) { (store.prefs[id] ||= {}).hidden = true; saveStore(); return send(res, 200, { ok: true }); }
       store.apps = store.apps.filter((a) => a.id !== id);
       health.delete(id);
       saveStore();
@@ -638,7 +758,7 @@ const server = http.createServer(async (req, res) => {
       return send(res, 202, { ok: true });
     }
     if (route === 'GET /api/scan') {
-      const tracked = new Set(store.apps.map((a) => `${a.server}-${a.port}`));
+      const tracked = new Set(allApps().flatMap((a) => (a.ports || [a.port]).map((p) => `${a.server}-${p}`)));
       if (scan.results) scan.results.forEach((r) => { r.tracked = tracked.has(`${r.server}-${r.port}`); });
       return send(res, 200, scan);
     }
