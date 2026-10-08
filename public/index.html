@@ -7,7 +7,7 @@
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <meta name="theme-color" content="#0b0e14">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Pixelify+Sans:wght@400;600&family=Press+Start+2P&family=VT323&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Press+Start+2P&family=VT323&display=swap" rel="stylesheet">
 <script>
   (function () {
     var t; try { t = localStorage.getItem('theme'); } catch (e) {}
@@ -61,7 +61,7 @@
     --text: #eef3ff; --muted: #9db0d8; --faint: #62749e;
     --ok: #39ff14; --warn: #ffe600; --bad: #ff2a6d;
     --srv1: #ff9e00; --srv2: #05d9e8; --srv3: #39ff14; --srv4: #ff2a6d;
-    --mono: 'VT323', monospace; --sans: 'Pixelify Sans', monospace; --display: 'Press Start 2P', monospace;
+    --mono: 'VT323', monospace; --sans: 'VT323', monospace; --display: 'Press Start 2P', monospace;
     --tint: #ffffff06; --tint-2: #ffffff0c; --tint-3: #ffffff18;
     --glow-a: #ff2a6d14; --glow-b: #05d9e81a;
     --star: #ffe600;
@@ -76,20 +76,22 @@
   [data-theme="retro"] .tile, [data-theme="retro"] .stat, [data-theme="retro"] .disk { border-width: 2px; }
   [data-theme="retro"] a.tile:hover { transform: translate(-2px, -2px); box-shadow: 4px 4px 0 var(--accent); }
   [data-theme="retro"] .clock { font: 32px/1.1 var(--display); letter-spacing: 0; text-shadow: 3px 3px 0 #ff2a6d88; }
-  [data-theme="retro"] .clock small { font-family: var(--sans); font-size: 18px; }
+  /* Body text is VT323 (clear letters and digits). It runs small, so scale it to the same
+     x-height the other themes use; the chunky arcade font is only for titles and headline numbers. */
+  [data-theme="retro"] body { font-size-adjust: ex-height 0.53; font-synthesis: none; letter-spacing: .02em; }
+  [data-theme="retro"] .clock, [data-theme="retro"] .stat .big, [data-theme="retro"] .s-title h2,
+  [data-theme="retro"] .toolbar h2, [data-theme="retro"] .dlg-h h2, [data-theme="retro"] .glyph,
+  [data-theme="retro"] .pill b, [data-theme="retro"] .tile .state b, [data-theme="retro"] .wordmark,
+  [data-theme="retro"] .setup-hero h1 { font-size-adjust: none; letter-spacing: 0; }
+  /* the smallest text (addresses, timings, labels, buttons) gets a little extra */
+  [data-theme="retro"] :is(.tile .addr, .tile .foot, .tile .state, .disk .n, .disk .t, .disk .meta, .disk .role,
+    .count, .btn, .seg button, .pill, .s-title .sub, .stat .lbl, .stat .small, h3, .scan-meta, .result .hint,
+    .srv-row label, .srv-status, .srv-more .hint, .setup, .badge, .greet, footer) { font-size-adjust: ex-height 0.64; }
+  [data-theme="retro"] .clock small { font: 20px var(--sans); font-size-adjust: ex-height 0.53; }
   [data-theme="retro"] .stat .big { font: 12px/1.6 var(--display); }
-  [data-theme="retro"] .disk .role, [data-theme="retro"] .stat .lbl, [data-theme="retro"] h3,
-  [data-theme="retro"] .badge, [data-theme="retro"] .greet, [data-theme="retro"] .srv-row label { font-size: 12.5px; letter-spacing: .05em; }
-  [data-theme="retro"] .stat .small { font-size: 13px; }
-  /* small numbers (IPs, ports, ms, sizes) use VT323: distinct digits, but it runs small, so size it up */
-  [data-theme="retro"] .tile .addr, [data-theme="retro"] .tile .foot, [data-theme="retro"] .tile .state,
-  [data-theme="retro"] .disk .n, [data-theme="retro"] .disk .t, [data-theme="retro"] .disk .meta,
-  [data-theme="retro"] .s-title .sub, [data-theme="retro"] .count, [data-theme="retro"] .scan-meta,
-  [data-theme="retro"] .result .port, [data-theme="retro"] .result .hint, [data-theme="retro"] .srv-status code,
-  [data-theme="retro"] .setup code { font-size: 17px; line-height: 1.15; letter-spacing: .02em; }
   [data-theme="retro"] .s-title h2, [data-theme="retro"] .toolbar h2, [data-theme="retro"] .dlg-h h2 { font: 15px/1.4 var(--display); }
   [data-theme="retro"] .glyph { font: 18px var(--display); }
-  [data-theme="retro"] .tile .state, [data-theme="retro"] .pill b { font-family: var(--display); font-size: 9px; }
+  [data-theme="retro"] .pill b { font-family: var(--display); font-size: 9px; }
   [data-theme="retro"] .tile .state b { font: 9px/1.8 var(--display); }
   [data-theme="retro"] .dot.ok { animation: blink 1.2s steps(1) infinite; box-shadow: none; }
   [data-theme="retro"] .spark i, [data-theme="retro"] .ring .val { transition: none; }
