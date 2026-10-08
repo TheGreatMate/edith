@@ -212,9 +212,10 @@ async function checkApp(a) {
     Object.assign(h, { up: false, degraded: false, ms: null, code: null, checked: Date.now() });
     return health.set(a.id, h);
   } else if (a.port) {
-    ms = await tcpPing(a.host, a.port, 2000);
+    const host = a.host || hostOf(a.server); // apps just added from a scan don't carry a host yet
+    ms = await tcpPing(host, a.port, 2000);
     if (ms != null && !a.tcp) {
-      const r = await probeHttp(`${a.scheme || 'http'}://${a.host}:${a.port}${a.path || '/'}`, 4000);
+      const r = await probeHttp(`${a.scheme || 'http'}://${host}:${a.port}${a.path || '/'}`, 4000);
       code = r?.status ?? null;
     }
   } else if (a.state === 'running') {

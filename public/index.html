@@ -253,9 +253,10 @@
   .tile.hidden-app .rm { color: var(--ok); }
   .tile .src { font-size: 10px; color: var(--faint); text-transform: uppercase; letter-spacing: .08em; }
   .tile .foot { align-items: center; }
-  .tile .star { border: 0; background: none; padding: 0 4px 0 0; margin: -4px 0; color: var(--faint); cursor: pointer; font: 14px/1 var(--sans); transition: color .15s, transform .15s; }
-  .tile .star:hover { color: var(--star); transform: scale(1.2); }
-  .tile.fav .star { color: var(--star); }
+  .tile .star { border: 0; background: none; padding: 4px 6px 4px 0; margin: -8px 2px -8px -2px; color: var(--muted); cursor: pointer;
+    font: 21px/1 system-ui, 'Segoe UI Symbol', sans-serif; font-size-adjust: none; vertical-align: middle; transition: color .15s, transform .15s; }
+  .tile .star:hover { color: var(--star); transform: scale(1.15); }
+  .tile.fav .star { color: var(--star); text-shadow: 0 0 8px color-mix(in srgb, var(--star) 55%, transparent); }
   .editing .tile .star { pointer-events: auto; }
   .viewall { display: flex; align-items: center; justify-content: center; gap: 8px; border: 1px dashed var(--line); border-radius: 14px; color: var(--muted); font-size: 13px; cursor: pointer; background: none; min-height: 96px; font-family: var(--sans); transition: .15s; }
   .viewall:hover { color: var(--text); border-color: var(--muted); }
