@@ -163,6 +163,17 @@
   h3 { font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); font-weight: 600; margin: 22px 0 10px; display: flex; align-items: center; gap: 8px; }
   h3 .count { color: var(--faint); font-family: var(--mono); letter-spacing: 0; }
   h3::after { content: ''; flex: 1; height: 1px; background: var(--line-soft); }
+  /* collapsible sections */
+  .sec-h { cursor: pointer; user-select: none; border-radius: 6px; }
+  .sec-h:hover { color: var(--text); }
+  .sec-h:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+  .chev { display: inline-block; width: 12px; text-align: center; transition: transform .15s; font-size: 10px; }
+  .collapsed > .sec-h .chev, .apps-panel.collapsed .chev { transform: rotate(-90deg); }
+  .sec.collapsed > .sec-b { display: none; }
+  .sec.collapsed > .sec-h { margin-bottom: 0; }
+  .sec-h .hint-collapsed { display: none; color: var(--faint); font-family: var(--mono); letter-spacing: 0; text-transform: none; }
+  .apps-panel .toolbar h2 { cursor: pointer; user-select: none; display: flex; align-items: center; gap: 8px; }
+  .apps-panel.collapsed #tiles { display: none; }
 
   .disks { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px; }
   .disk { border: 1px solid var(--line-soft); border-radius: 10px; padding: 10px 12px; background: var(--tint); }
@@ -368,7 +379,7 @@
   <div id="dash">
   <section class="apps-panel" id="appsPanel">
     <div class="toolbar">
-      <h2>Apps</h2><span class="count" id="appCount"></span>
+      <h2 id="appsToggle" role="button" tabindex="0" title="Show / hide apps"><span class="chev">▾</span>Apps</h2><span class="count" id="appCount"></span>
       <span class="spacer"></span>
       <div class="seg" id="filter">
         <button data-f="fav">★ Favorites</button><button data-f="all">All</button>
@@ -530,7 +541,7 @@ function render(s, idx) {
   const plex = s.plex?.streams;
   const status = !s.online ? 'Offline' : s.configured ? (arr.state || 'Online') : 'Reachable';
 
-  return `<section class="server ${cls} ${s.online ? '' : 'offline'}" style="--accent:${s.online ? accentOf(s.id) : 'var(--bad)'}">
+  return `<section class="server ${cls} ${s.online ? '' : 'offline'}" data-id="${esc(s.id)}" style="--accent:${s.online ? accentOf(s.id) : 'var(--bad)'}">
     <div class="s-head">
       <div class="glyph">${s.name[0]}</div>
       <div class="s-title">
@@ -588,9 +599,64 @@ function summary(servers) {
 }
 
 let lastStatus = null;
-function paintServers() {
-  if (lastStatus) $('#grid').innerHTML = lastStatus.servers.map(render).join('');
+// Collapsed sections are a per-browser preference: "serverId:section" -> true
+let collapsed = {};
+try { collapsed = JSON.parse(localStorage.getItem('collapsed') || '{}'); } catch {}
+const saveCollapsed = () => { try { localStorage.setItem('collapsed', JSON.stringify(collapsed)); } catch {} };
+
+// Group every <h3> in a server card with the content that follows it, and make the heading a toggle.
+function makeCollapsible(card) {
+  const id = card.dataset.id;
+  for (const h of [...card.querySelectorAll(':scope > h3')]) {
+    const name = (h.firstChild?.textContent || '').trim();
+    const key = `${id}:${name.toLowerCase().replace(/s$/, '')}`; // "CPU" and "CPUs" share a key
+    const sec = document.createElement('div');
+    sec.className = 'sec' + (collapsed[key] ? ' collapsed' : '');
+    sec.dataset.key = key;
+    const body = document.createElement('div');
+    body.className = 'sec-b';
+    for (let n = h.nextElementSibling; n && n.tagName !== 'H3' && !n.classList.contains('errors');) {
+      const next = n.nextElementSibling;
+      body.appendChild(n);
+      n = next;
+    }
+    h.classList.add('sec-h');
+    h.setAttribute('role', 'button');
+    h.tabIndex = 0;
+    h.insertAdjacentHTML('afterbegin', '<span class="chev">▾</span>');
+    h.replaceWith(sec);
+    sec.append(h, body);
+  }
 }
+
+function paintServers() {
+  if (!lastStatus) return;
+  $('#grid').innerHTML = lastStatus.servers.map(render).join('');
+  document.querySelectorAll('#grid .server').forEach(makeCollapsible);
+}
+
+function toggleSection(h) {
+  const sec = h.closest('.sec');
+  const on = !sec.classList.contains('collapsed');
+  sec.classList.toggle('collapsed', on);
+  if (on) collapsed[sec.dataset.key] = true; else delete collapsed[sec.dataset.key];
+  saveCollapsed();
+}
+$('#grid').addEventListener('click', (e) => { const h = e.target.closest('.sec-h'); if (h) toggleSection(h); });
+$('#grid').addEventListener('keydown', (e) => {
+  const h = e.target.closest('.sec-h');
+  if (h && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); toggleSection(h); }
+});
+
+function toggleApps() {
+  const on = !$('#appsPanel').classList.contains('collapsed');
+  $('#appsPanel').classList.toggle('collapsed', on);
+  if (on) collapsed.apps = true; else delete collapsed.apps;
+  saveCollapsed();
+}
+$('#appsPanel').classList.toggle('collapsed', !!collapsed.apps);
+$('#appsToggle').onclick = toggleApps;
+$('#appsToggle').onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleApps(); } };
 
 async function load() {
   try {
