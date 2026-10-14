@@ -46,6 +46,10 @@ Open Plex Web (`http://<server>:32400/web`) and sign in, press **F12** → **Con
 - **Edit** → × hides a container from the board (↺ brings it back) or removes a service you added by port.
 - **+ Add by port** scans every TCP port on a server for things that aren't containers (SMB shares, RustDesk, …) and lets you **Add** or **Ignore** each one.
 
+## Layout
+
+Drag any card (Apps, each server, Network) by its **⠿** handle to rearrange them, and use **▾** to minimize a card to its title bar. Section headings inside a card (Disks, Containers, Devices, …) collapse too. Layout choices are remembered per browser.
+
 ## Themes
 
 Dark, light and retro (pixel fonts, chunky borders, block meters). Defaults to your system setting.

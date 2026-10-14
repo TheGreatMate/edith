@@ -223,7 +223,18 @@
   .empty { color: var(--faint); font-size: 12.5px; }
 
   /* --- apps --- */
-  .apps-panel { border: 1px solid var(--line); background: var(--panel); border-radius: 18px; padding: 18px 20px 20px; margin-bottom: 20px; backdrop-filter: blur(10px); }
+  .apps-panel { border: 1px solid var(--line); background: var(--panel); border-radius: 18px; padding: 18px 20px 20px; backdrop-filter: blur(10px); grid-column: 1 / -1; min-width: 0; }
+  /* card controls: drag handle + minimize */
+  .card-ctl { display: flex; align-items: center; gap: 2px; margin: 0 2px 0 -8px; flex: none; }
+  .card-ctl .drag { cursor: grab; color: var(--faint); font-size: 18px; line-height: 1; padding: 4px 3px; user-select: none; border-radius: 6px; }
+  .card-ctl .drag:hover { color: var(--text); background: var(--tint-2); }
+  .card-ctl .drag:active { cursor: grabbing; }
+  .min-btn { background: none; border: 0; color: var(--faint); cursor: pointer; font-size: 13px; width: 24px; height: 24px; border-radius: 6px; transition: transform .15s, color .15s; flex: none; }
+  .min-btn:hover { color: var(--text); background: var(--tint-2); }
+  .server.min .min-btn, .apps-panel.collapsed .min-btn { transform: rotate(-90deg); }
+  .server.min > :not(.s-head) { display: none; }
+  [data-card].dragging { opacity: .35; outline: 2px dashed var(--accent, var(--muted)); outline-offset: 4px; }
+  .add-srv { order: 99999; }
   .toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
   .toolbar h2 { margin: 0 6px 0 0; font-size: 18px; letter-spacing: -.01em; }
   .toolbar .count { color: var(--muted); font: 12px var(--mono); }
@@ -386,9 +397,11 @@
   </section>
 
   <div id="dash">
-  <section class="apps-panel" id="appsPanel">
+  <main class="grid" id="cards">
+  <section class="apps-panel" id="appsPanel" data-card="apps">
     <div class="toolbar">
-      <h2 id="appsToggle" role="button" tabindex="0" title="Show / hide apps"><span class="chev">▾</span>Apps</h2><span class="count" id="appCount"></span>
+      <div class="card-ctl"><span class="drag" title="Drag to move">⠿</span><button class="min-btn" data-min="apps" title="Minimize / expand">▾</button></div>
+      <h2 id="appsToggle" role="button" tabindex="0" title="Show / hide apps">Apps</h2><span class="count" id="appCount"></span>
       <span class="spacer"></span>
       <div class="seg" id="filter">
         <button data-f="fav">★ Favorites</button><button data-f="all">All</button>
@@ -398,8 +411,7 @@
     </div>
     <div class="tiles" id="tiles"></div>
   </section>
-
-  <main class="grid"><div id="grid" style="display:contents"></div><button class="add-srv" data-open-servers="new"><b>+</b> Add server</button></main>
+  <div id="grid" style="display:contents"></div><button class="add-srv" data-open-servers="new"><b>+</b> Add server</button></main>
   </div>
 
   <dialog id="srvDlg">
@@ -550,8 +562,9 @@ function render(s, idx) {
   const plex = s.plex?.streams;
   const status = !s.online ? 'Offline' : s.configured ? (arr.state || 'Online') : 'Reachable';
 
-  return `<section class="server ${cls} ${s.online ? '' : 'offline'}" data-id="${esc(s.id)}" style="--accent:${s.online ? accentOf(s.id) : 'var(--bad)'}">
+  return `<section class="server ${cls} ${s.online ? '' : 'offline'} ${collapsed['card:' + s.id] ? 'min' : ''}" data-card="${esc(s.id)}" data-id="${esc(s.id)}" style="--accent:${s.online ? accentOf(s.id) : 'var(--bad)'}">
     <div class="s-head">
+      <div class="card-ctl"><span class="drag" title="Drag to move">⠿</span><button class="min-btn" data-min="${esc(s.id)}" title="Minimize / expand">▾</button></div>
       <div class="glyph">${s.name[0]}</div>
       <div class="s-title">
         <h2>${esc(s.name)} <span class="badge">${esc(s.os)}${s.version ? ' ' + esc(s.version) : ''}</span></h2>
@@ -670,8 +683,9 @@ function renderUnifi(n) {
     stat(gw.cpu ?? null, 'Gateway CPU', gw.cpu != null ? Math.round(gw.cpu) + '%' : '—', gw.name ? esc(gw.name) : ''),
     stat(gw.mem ?? null, 'Gateway memory', gw.mem != null ? Math.round(gw.mem) + '%' : '—', devs.length ? `${on}/${devs.length} devices online` : ''),
   ].join('');
-  return `<section class="server unifi ${n.online ? '' : 'offline'}" data-id="unifi" style="--accent:${n.online ? '#1e88e5' : 'var(--bad)'}">
+  return `<section class="server unifi ${n.online ? '' : 'offline'} ${collapsed['card:unifi'] ? 'min' : ''}" data-card="unifi" data-id="unifi" style="--accent:${n.online ? '#1e88e5' : 'var(--bad)'}">
     <div class="s-head">
+      <div class="card-ctl"><span class="drag" title="Drag to move">⠿</span><button class="min-btn" data-min="${esc('unifi')}" title="Minimize / expand">▾</button></div>
       <div class="glyph">⌁</div>
       <div class="s-title">
         <h2>${esc(n.name)} <span class="badge">UniFi${n.model ? ' ' + esc(n.model) : ''}</span></h2>
@@ -687,9 +701,70 @@ function renderUnifi(n) {
 
 function paintServers() {
   if (!lastStatus) return;
+  if (dragId) { paintPending = true; return; } // never rebuild cards under a drag
   $('#grid').innerHTML = lastStatus.servers.map(render).join('') + (lastStatus.unifi ? renderUnifi(lastStatus.unifi) : '');
   document.querySelectorAll('#grid .server').forEach(makeCollapsible);
+  applyOrder();
 }
+
+// --- card order (drag & drop) + minimize, remembered per browser ---------------
+let cardOrder = [], dragId = null, paintPending = false;
+try { cardOrder = JSON.parse(localStorage.getItem('cardOrder') || '[]'); } catch {}
+const cardEls = () => [...document.querySelectorAll('#cards [data-card]')];
+
+// CSS "order" places the cards, so repainting a card never loses its spot.
+function applyOrder() {
+  const ids = cardEls().map((e) => e.dataset.card);
+  const merged = [...cardOrder.filter((id) => ids.includes(id)), ...ids.filter((id) => !cardOrder.includes(id))];
+  cardEls().forEach((e) => { e.style.order = merged.indexOf(e.dataset.card); });
+  return merged;
+}
+
+const cardsEl = $('#cards');
+cardsEl.addEventListener('pointerdown', (e) => {
+  const card = e.target.closest('.drag')?.closest('[data-card]');
+  if (card) card.draggable = true;
+});
+cardsEl.addEventListener('pointerup', () => { if (!dragId) cardEls().forEach((c) => { c.draggable = false; }); });
+cardsEl.addEventListener('dragstart', (e) => {
+  const card = e.target.closest?.('[data-card]');
+  if (!card?.draggable) return;
+  dragId = card.dataset.card;
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData('text/plain', dragId);
+  requestAnimationFrame(() => card.classList.add('dragging'));
+});
+cardsEl.addEventListener('dragover', (e) => {
+  if (!dragId) return;
+  e.preventDefault();
+  const t = e.target.closest('[data-card]');
+  if (!t || t.dataset.card === dragId) return;
+  const r = t.getBoundingClientRect();
+  const fullRow = r.width > cardsEl.clientWidth * 0.7;
+  const after = fullRow ? e.clientY > r.top + r.height / 2 : e.clientX > r.left + r.width / 2;
+  const order = applyOrder().filter((id) => id !== dragId);
+  order.splice(order.indexOf(t.dataset.card) + (after ? 1 : 0), 0, dragId);
+  if (order.join() !== cardOrder.join()) { cardOrder = order; applyOrder(); }
+});
+cardsEl.addEventListener('drop', (e) => { if (dragId) e.preventDefault(); });
+cardsEl.addEventListener('dragend', () => {
+  cardEls().forEach((c) => { c.classList.remove('dragging'); c.draggable = false; });
+  dragId = null;
+  try { localStorage.setItem('cardOrder', JSON.stringify(cardOrder)); } catch {}
+  if (paintPending) { paintPending = false; paintServers(); }
+});
+
+cardsEl.addEventListener('click', (e) => {
+  const b = e.target.closest('.min-btn');
+  if (!b) return;
+  const id = b.dataset.min;
+  if (id === 'apps') return toggleApps();
+  const card = b.closest('[data-card]');
+  const on = !card.classList.contains('min');
+  card.classList.toggle('min', on);
+  if (on) collapsed['card:' + id] = true; else delete collapsed['card:' + id];
+  saveCollapsed();
+});
 
 function toggleSection(h) {
   const sec = h.closest('.sec');
@@ -707,10 +782,13 @@ $('#grid').addEventListener('keydown', (e) => {
 function toggleApps() {
   const on = !$('#appsPanel').classList.contains('collapsed');
   $('#appsPanel').classList.toggle('collapsed', on);
-  if (on) collapsed.apps = true; else delete collapsed.apps;
+  if (on) collapsed['card:apps'] = true; else delete collapsed['card:apps'];
+  delete collapsed.apps;
   saveCollapsed();
 }
-$('#appsPanel').classList.toggle('collapsed', !!collapsed.apps);
+if (collapsed.apps) collapsed['card:apps'] = true;
+$('#appsPanel').classList.toggle('collapsed', !!collapsed['card:apps']);
+applyOrder();
 $('#appsToggle').onclick = toggleApps;
 $('#appsToggle').onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleApps(); } };
 
