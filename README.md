@@ -30,6 +30,10 @@ Without a key, a server card shows whether it's reachable. Add one in **⚙ Serv
 
 Keys are checked when you save them, stored only in `data/config.json` on the machine running EDITH, and never sent back to the browser. EDITH has no login of its own, so run it on your LAN only.
 
+### UniFi (optional)
+
+Add your UniFi console (Dream Machine / Dream Router / Cloud Gateway) on the setup screen or in **⚙ Servers** → UniFi to get a **Network** card: internet throughput, client counts (wired / Wi-Fi), gateway CPU and memory, and every UniFi device with its status, uptime and load. EDITH finds the console automatically; create the key in **UniFi Network → Settings → Control Plane → Integrations → Create API Key**. It uses UniFi's official local Integration API — no username or password.
+
 ### Plex token
 
 Open Plex Web (`http://<server>:32400/web`) and sign in, press **F12** → **Console**, run `localStorage.myPlexAccessToken` and copy the value without the quotes. Paste it on the setup screen or in **⚙ Servers** → Plex. The token is tested when you save it and stored with your API keys.

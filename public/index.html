@@ -333,6 +333,14 @@
   .plex-row .srv-fields { grid-template-columns: 1fr 1fr; }
   @media (max-width: 640px) { .plex-row .srv-fields { grid-template-columns: 1fr; } }
   .plex-row code { font: 12px var(--mono); color: var(--accent); background: var(--tint-2); padding: 1px 5px; border-radius: 4px; }
+  .unifi-row { --accent: #1e88e5; margin-top: 12px; }
+  .unifi-row .srv-fields { grid-template-columns: 1fr 1fr; }
+  @media (max-width: 640px) { .unifi-row .srv-fields { grid-template-columns: 1fr; } }
+  .unifi-row code { font: 12px var(--mono); color: var(--accent); background: var(--tint-2); padding: 1px 5px; border-radius: 4px; }
+  .netdev .row .dot { display: inline-block; margin-right: 6px; vertical-align: middle; }
+  .netdev .facts { display: flex; gap: 12px; flex-wrap: wrap; font: 11px var(--mono); color: var(--muted); margin-top: 6px; }
+  .netdev .facts b { color: var(--text); font-weight: 500; }
+  .netdev.offline { opacity: .6; }
   #srvDlg { width: min(820px, calc(100vw - 32px)); }
   #srvDlg .srv-row { background: var(--tint); }
   [hidden] { display: none !important; }
@@ -369,6 +377,7 @@
       <button class="btn" id="setupAdd">+ Add another server</button>
     </div>
     <div id="setupPlex"></div>
+    <div id="setupUnifi"></div>
     <div class="form-error" id="setupError"></div>
     <div class="setup-actions">
       <span></span>
@@ -399,7 +408,7 @@
       <button class="btn" id="srvAdd">+ Add server</button>
       <button class="btn" id="srvClose">✕</button>
     </div>
-    <div class="dlg-b"><div class="srv-rows" id="srvRows"></div><div id="dlgPlex"></div></div>
+    <div class="dlg-b"><div class="srv-rows" id="srvRows"></div><div id="dlgPlex"></div><div id="dlgUnifi"></div></div>
   </dialog>
 
   <dialog id="scanDlg">
@@ -629,9 +638,56 @@ function makeCollapsible(card) {
   }
 }
 
+const rate = (bps) => {
+  if (bps == null) return '—';
+  const u = ['bps', 'Kbps', 'Mbps', 'Gbps']; let i = 0; let n = +bps;
+  while (n >= 1000 && i < u.length - 1) { n /= 1000; i++; }
+  return `${n >= 100 || i === 0 ? n.toFixed(0) : n.toFixed(1)} ${u[i]}`;
+};
+
+function netDevice(d) {
+  const facts = [
+    d.uptime != null ? `<span>up <b>${dur(d.uptime)}</b></span>` : '',
+    d.cpu != null ? `<span>CPU <b>${Math.round(d.cpu)}%</b></span>` : '',
+    d.mem != null ? `<span>RAM <b>${Math.round(d.mem)}%</b></span>` : '',
+    d.rx != null ? `<span>↓ <b>${rate(d.rx)}</b> ↑ <b>${rate(d.tx)}</b></span>` : '',
+  ].join('');
+  return `<div class="disk netdev ${d.online ? '' : 'offline'}">
+    <div class="row"><span class="n"><span class="dot ${d.online ? 'ok' : 'bad'}" style="animation:none"></span>${esc(d.name)}</span><span class="t idle">${esc(d.model || '')}</span></div>
+    <div class="row"><span class="role">${d.gateway ? 'gateway · ' : ''}${esc(d.ip || (d.online ? '' : String(d.state || '').toLowerCase()))}</span></div>
+    <div class="facts">${facts}</div>
+  </div>`;
+}
+
+function renderUnifi(n) {
+  const devs = n.devices || [];
+  const on = devs.filter((d) => d.online).length;
+  const gw = n.gateway || {};
+  const c = n.clients;
+  const stats = [
+    stat(null, 'Internet', gw.rx != null ? '↓ ' + rate(gw.rx) : '—', gw.tx != null ? '↑ ' + rate(gw.tx) : '', 'WAN'),
+    stat(null, 'Clients', c ? String(c.total) : '—', c ? `${c.wired} wired · ${c.wireless} Wi-Fi` : '', c ? String(c.total) : '—'),
+    stat(gw.cpu ?? null, 'Gateway CPU', gw.cpu != null ? Math.round(gw.cpu) + '%' : '—', gw.name ? esc(gw.name) : ''),
+    stat(gw.mem ?? null, 'Gateway memory', gw.mem != null ? Math.round(gw.mem) + '%' : '—', devs.length ? `${on}/${devs.length} devices online` : ''),
+  ].join('');
+  return `<section class="server unifi ${n.online ? '' : 'offline'}" data-id="unifi" style="--accent:${n.online ? '#1e88e5' : 'var(--bad)'}">
+    <div class="s-head">
+      <div class="glyph">⌁</div>
+      <div class="s-title">
+        <h2>${esc(n.name)} <span class="badge">UniFi${n.model ? ' ' + esc(n.model) : ''}</span></h2>
+        <div class="sub"><span class="dot ${n.online ? 'ok' : 'bad'}" style="display:inline-block;vertical-align:middle;margin-right:6px"></span>${n.online ? 'Online' : 'Offline'} · ${esc(n.host)}${devs.length ? ` · ${on}/${devs.length} devices` : ''}</div>
+      </div>
+      <a class="s-open" href="${esc(n.ui)}" target="_blank" rel="noopener">Open UI ↗</a>
+    </div>
+    <div class="stats">${stats}</div>
+    ${devs.length ? `<h3>Devices <span class="count">${on}/${devs.length} online</span></h3><div class="disks">${devs.map(netDevice).join('')}</div>` : ''}
+    ${n.errors?.length ? `<div class="errors">${n.errors.map(esc).join('<br>')}</div>` : ''}
+  </section>`;
+}
+
 function paintServers() {
   if (!lastStatus) return;
-  $('#grid').innerHTML = lastStatus.servers.map(render).join('');
+  $('#grid').innerHTML = lastStatus.servers.map(render).join('') + (lastStatus.unifi ? renderUnifi(lastStatus.unifi) : '');
   document.querySelectorAll('#grid .server').forEach(makeCollapsible);
 }
 
@@ -979,6 +1035,12 @@ async function detectRow(row) {
     if (!field(row, 'url').value) field(row, 'url').placeholder = d.url;
     row.querySelector('[data-hint]').innerHTML = keyHint(d.type, host);
     setStatus(row, `<span class="ok">✓ Found ${esc(d.flavor)}</span> <code>${esc(d.url)}</code>` + (d.plex ? ' · <span class="ok">Plex too</span>' : ''));
+    const unifiHost = $('#setupUnifi [name="unifiHost"]');
+    if (unifiHost && !unifiHost.value) api('POST', '/api/unifi/detect', { host }).then(({ detected }) => {
+      if (!detected || unifiHost.value) return;
+      unifiHost.value = detected.host;
+      $('#setupUnifi [data-unifi-status]').innerHTML = `<span class="ok">✓ Found ${esc(detected.name || 'UniFi')}</span> <code>${esc(detected.model)} · ${esc(detected.host)}</code> — paste an API key to connect.`;
+    }).catch(() => {});
     const plexUrl = $('#setupPlex [name="plexUrl"]');
     if (d.plex && plexUrl && !plexUrl.value) {
       plexUrl.value = d.plex;
@@ -1033,6 +1095,7 @@ function showSetup(on) {
   document.querySelector('footer').hidden = on;
   if (on && !$('#setupRows').children.length) {
     $('#setupPlex').innerHTML = plexRow({});
+    $('#setupUnifi').innerHTML = unifiRow({});
     $('#setupRows').innerHTML = srvRow({}, 0);
     field($('#setupRows .srv-row'), 'name').focus();
   }
@@ -1050,6 +1113,7 @@ $('#setupDone').onclick = async () => {
   $('#setupDone').disabled = true;
   try {
     for (const row of rows) await saveRow(row);
+    if (!(await saveUnifi($('#setupUnifi .unifi-row')))) throw new Error('Fix the UniFi API key, or clear it to skip UniFi for now.');
     if (!(await savePlex($('#setupPlex .plex-row')))) throw new Error('Fix the Plex token, or clear it to skip Plex for now.');
     showSetup(false);
     loadApps.sig = null;
@@ -1057,6 +1121,55 @@ $('#setupDone').onclick = async () => {
   } catch (e) { $('#setupError').textContent = e.message; }
   finally { $('#setupDone').disabled = false; }
 };
+
+// unifi (optional)
+const UNIFI_HELP = 'In <b>UniFi Network</b> go to <b>Settings → Control Plane → Integrations</b> and click <b>Create API Key</b>. Copy it — UniFi only shows it once.';
+
+function unifiRow(u = {}, manage = false) {
+  const found = u.detected ? `<span class="ok">✓ Found ${esc(u.detected.name || 'UniFi')}</span> <code>${esc(u.detected.model || '')} · ${esc(u.detected.host)}</code>` : '';
+  return `<div class="srv-row unifi-row">
+    <div class="plex-head"><img src="${ICONS}/svg/ubiquiti-unifi.svg" alt="" onerror="this.remove()"><b>UniFi</b><span>Optional — internet speed, clients and your network devices</span></div>
+    <div class="srv-fields">
+      <label>Console address<input name="unifiHost" value="${esc(u.host || u.detected?.host || '')}" placeholder="e.g. 192.168.1.1" spellcheck="false" autocomplete="off"></label>
+      <label>API key<input name="unifiKey" type="password" autocomplete="off" placeholder="${u.hasKey ? '•••••••• saved — paste a new one to replace' : 'Paste your UniFi API key'}"></label>
+    </div>
+    <div class="srv-status" data-unifi-status>${u.hasKey ? `<span class="ok">✓ Connected${u.model ? ' to ' + esc(u.name || u.model) : ''}</span>` : found}</div>
+    <details><summary>How do I get a UniFi API key?</summary><div class="srv-more"><div class="hint">${UNIFI_HELP}</div></div></details>
+    ${manage ? `<div class="srv-foot"><span class="spacer"></span>${u.hasKey ? '<button class="btn danger" data-unifi-clear>Disconnect</button>' : ''}<button class="btn primary" data-unifi-save>Save</button></div>` : ''}
+  </div>`;
+}
+
+// Returns true if there was nothing to save or it saved fine.
+async function saveUnifi(box) {
+  if (!box) return true;
+  const host = field(box, 'unifiHost').value.trim();
+  const apiKey = field(box, 'unifiKey').value.trim();
+  const status = box.querySelector('[data-unifi-status]');
+  if (!apiKey) return true; // address alone isn't useful; skip quietly
+  if (!host) { status.innerHTML = '<span class="bad">✕ Enter the console address too.</span>'; return false; }
+  status.innerHTML = '<span>Checking UniFi…</span>';
+  try {
+    const r = await api('PUT', '/api/unifi', { host, apiKey });
+    field(box, 'unifiKey').value = '';
+    field(box, 'unifiKey').placeholder = '•••••••• saved — paste a new one to replace';
+    status.innerHTML = `<span class="ok">✓ Connected to ${esc(r.name || r.model || 'UniFi')}</span>`;
+    return true;
+  } catch (e) { status.innerHTML = `<span class="bad">✕ ${esc(e.message)}</span>`; return false; }
+}
+
+async function renderUnifiSettings(target, manage) {
+  const u = await api('GET', '/api/unifi').catch(() => ({}));
+  $(target).innerHTML = unifiRow(u, manage);
+}
+
+$('#dlgUnifi').addEventListener('click', async (e) => {
+  const box = $('#dlgUnifi .unifi-row');
+  if (e.target.closest('[data-unifi-save]')) await saveUnifi(box);
+  if (e.target.closest('[data-unifi-clear]')) {
+    await api('PUT', '/api/unifi', { host: field(box, 'unifiHost').value.trim(), clearKey: true });
+    renderUnifiSettings('#dlgUnifi', true);
+  }
+});
 
 // plex (optional)
 const PLEX_HELP = 'Open Plex Web (e.g. <code>http://&lt;server&gt;:32400/web</code>) and sign in, press <b>F12</b> → <b>Console</b>, run <code>localStorage.myPlexAccessToken</code> and copy the value without the quotes.';
@@ -1103,6 +1216,7 @@ $('#dlgPlex').addEventListener('click', async (e) => {
   if (e.target.closest('[data-plex-clear]')) {
     await api('PUT', '/api/plex', { url: field(box, 'plexUrl').value.trim(), clearToken: true });
     renderPlex('#dlgPlex', true);
+  renderUnifiSettings('#dlgUnifi', true);
   }
 });
 
@@ -1111,6 +1225,7 @@ async function openServers(addNew) {
   const { servers } = await api('GET', '/api/servers');
   $('#srvRows').innerHTML = servers.map((x, i) => srvRow(x, i, true)).join('');
   renderPlex('#dlgPlex', true);
+  renderUnifiSettings('#dlgUnifi', true);
   if (addNew || !servers.length) addServerRow();
   $('#srvDlg').showModal();
 }

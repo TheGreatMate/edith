@@ -65,12 +65,12 @@ const slug = (s) => String(s).toLowerCase().replace(/\(.*?\)/g, '').trim().repla
 const dataDir = env.DATA_DIR || path.join(__dirname, 'data');
 const storeFile = path.join(dataDir, 'config.json');
 const legacyFile = path.join(dataDir, 'apps.json');
-let store = { servers: [], apps: [], ignored: [], plex: {}, prefs: {} };
+let store = { servers: [], apps: [], ignored: [], plex: {}, prefs: {}, unifi: {} };
 
 function loadStore() {
   try { fs.mkdirSync(dataDir, { recursive: true }); } catch {}
   const file = fs.existsSync(storeFile) ? storeFile : fs.existsSync(legacyFile) ? legacyFile : null;
-  if (file) store = { servers: [], apps: [], ignored: [], plex: {}, prefs: {}, ...JSON.parse(fs.readFileSync(file, 'utf8')) };
+  if (file) store = { servers: [], apps: [], ignored: [], plex: {}, prefs: {}, unifi: {}, ...JSON.parse(fs.readFileSync(file, 'utf8')) };
   // Optional: preconfigure servers via environment on first run.
   if (!store.servers.length) {
     if (env.UNRAID_HOST) store.servers.push({ id: 'unraid', type: 'unraid', name: env.UNRAID_NAME || 'Unraid', host: env.UNRAID_HOST, url: env.UNRAID_URL || '', apiKey: env.UNRAID_API_KEY || '' });
@@ -623,6 +623,81 @@ async function truenas(s) {
 
 const statsFor = { unraid, truenas };
 
+// --- UniFi (Network Integration API, X-API-Key) --------------------------------
+// Key: UniFi Network → Settings → Control Plane → Integrations → Create API Key.
+const unifiBase = (u) => `https://${u.host}/proxy/network/integration/v1`;
+const unifiGet = (u, p, timeout = 5000) => fetchJson(`${unifiBase(u)}/${p}`, { headers: { 'X-API-Key': u.apiKey, Accept: 'application/json' } }, timeout);
+
+// A UniFi OS console answers /api/system without auth with its model and name.
+async function findUnifi(host) {
+  const r = await probeHttp(`https://${host}/api/system`, 2000);
+  try {
+    const j = JSON.parse(r?.text || '');
+    if (j?.hardware?.shortname) return { host, model: j.hardware.shortname, name: j.name || null };
+  } catch {}
+  return null;
+}
+
+// Guess the console: the .1 of each server's subnet (usually the router).
+async function detectUnifi() {
+  const guesses = [...new Set(store.servers.map((x) => x.host).filter((h) => /^\d+\.\d+\.\d+\.\d+$/.test(h)).map((h) => h.replace(/\.\d+$/, '.1')))];
+  for (const h of guesses) { const f = await findUnifi(h); if (f) return f; }
+  return null;
+}
+
+async function unifiSite(u) {
+  const sites = await unifiGet(u, 'sites?limit=50');
+  const list = sites?.data || [];
+  return (list.find((x) => x.internalReference === 'default') || list[0])?.id || null;
+}
+
+async function listAll(u, path, max = 1000) {
+  const out = [];
+  for (let offset = 0; offset < max; offset += 200) {
+    const page = await unifiGet(u, `${path}${path.includes('?') ? '&' : '?'}offset=${offset}&limit=200`);
+    out.push(...(page?.data || []));
+    if (!page || out.length >= (page.totalCount ?? out.length) || !(page.data || []).length) break;
+  }
+  return out;
+}
+
+const isGateway = (d, host) => d.ipAddress === host || (d.features || []).some((f) => /gateway|routing/i.test(f)) || /^(UD|UX|UCG|USG|UXG|EFG)/i.test(d.model || '');
+
+async function unifiStatus() {
+  const u = store.unifi || {};
+  if (!u.host || !u.apiKey) return null;
+  const out = { id: 'unifi', type: 'unifi', name: u.name || 'Network', model: u.model || null, host: u.host, ui: `https://${u.host}/network/`, errors: [] };
+  try {
+    u.siteId ||= await unifiSite(u);
+    if (!u.siteId) throw new Error('No UniFi site found');
+    const site = `sites/${u.siteId}`;
+    const [devices, clients] = await Promise.all([listAll(u, `${site}/devices`), settle(listAll(u, `${site}/clients`, 2000))]);
+    const stats = await Promise.all(devices.map((d) => settle(unifiGet(u, `${site}/devices/${d.id}/statistics/latest`, 4000))));
+    out.devices = devices.map((d, i) => {
+      const st = stats[i] || {};
+      return {
+        name: d.name || d.model, model: d.model, ip: d.ipAddress, mac: d.macAddress,
+        online: String(d.state || '').toUpperCase() === 'ONLINE', state: d.state,
+        gateway: isGateway(d, u.host), features: d.features || [],
+        uptime: st.uptimeSec ?? null, cpu: st.cpuUtilizationPct ?? null, mem: st.memoryUtilizationPct ?? null,
+        tx: st.uplink?.txRateBps ?? null, rx: st.uplink?.rxRateBps ?? null,
+      };
+    }).sort((a, b) => (b.gateway - a.gateway) || a.name.localeCompare(b.name));
+    if (clients) {
+      const type = (c) => String(c.type || '').toUpperCase();
+      out.clients = { total: clients.length, wired: clients.filter((c) => type(c) === 'WIRED').length, wireless: clients.filter((c) => type(c) === 'WIRELESS').length };
+    }
+    const gw = out.devices.find((d) => d.gateway);
+    if (gw) out.gateway = gw;
+    out.online = true;
+  } catch (e) {
+    out.online = (await tcpPing(u.host, 443)) != null;
+    out.errors.push(/401/.test(e.message) ? 'UniFi rejected the API key — check it in ⚙ Servers' : e.message);
+    if (/401|404/.test(e.message)) delete u.siteId;
+  }
+  return out;
+}
+
 // --- http -----------------------------------------------------------------
 function readBody(req) {
   return new Promise((resolve) => {
@@ -650,11 +725,37 @@ const server = http.createServer(async (req, res) => {
         try { host = new URL(plexCfg().url).hostname; } catch {}
         (out.find((x) => x.host === host) || out[0]).plex = plex;
       }
-      return send(res, 200, { time: Date.now(), servers: out });
+      const net = await settle(unifiStatus());
+      return send(res, 200, { time: Date.now(), servers: out, unifi: net });
     }
     if (route === 'GET /api/apps') return send(res, 200, { apps: appsPayload(), servers: store.servers.map(publicServer), interval: cfg.checkInterval });
 
     // plex
+    if (route === 'GET /api/unifi') {
+      const u = store.unifi || {};
+      const detected = u.host ? null : await detectUnifi();
+      return send(res, 200, { host: u.host || '', hasKey: !!u.apiKey, model: u.model || null, name: u.name || null, detected });
+    }
+    if (route === 'POST /api/unifi/detect') { // setup screen: is there a UniFi console at this server's .1?
+      const b = await readBody(req);
+      const h = cleanHost(b.host);
+      return send(res, 200, { detected: /^\d+\.\d+\.\d+\.\d+$/.test(h) ? await findUnifi(h.replace(/\.\d+$/, '.1')) : null });
+    }
+    if (route === 'PUT /api/unifi') {
+      const b = await readBody(req);
+      const u = { ...(store.unifi || {}) };
+      if ('host' in b) { const h = cleanHost(b.host); if (h !== u.host) delete u.siteId; u.host = h; }
+      if (b.apiKey) { u.apiKey = String(b.apiKey).trim(); delete u.siteId; }
+      if (b.clearKey || !u.host) { delete u.apiKey; delete u.siteId; }
+      if (u.host && u.apiKey) {
+        try { u.siteId = await unifiSite(u); if (!u.siteId) throw new Error('No UniFi site found on that console'); }
+        catch (e) { return send(res, 400, { error: /401/.test(e.message) ? 'UniFi rejected the API key' : `Couldn't reach UniFi: ${e.message}` }); }
+      }
+      if (u.host) { const f = await findUnifi(u.host); if (f) { u.model = f.model; u.name = f.name; } }
+      store.unifi = u;
+      saveStore();
+      return send(res, 200, { host: u.host || '', hasKey: !!u.apiKey, model: u.model || null, name: u.name || null });
+    }
     if (route === 'GET /api/plex') {
       const p = plexCfg();
       let detected = null;
