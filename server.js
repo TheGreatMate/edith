@@ -626,7 +626,17 @@ const statsFor = { unraid, truenas };
 // --- UniFi (Network Integration API, X-API-Key) --------------------------------
 // Key: UniFi Network → Settings → Control Plane → Integrations → Create API Key.
 const unifiBase = (u) => `https://${u.host}/proxy/network/integration/v1`;
-const unifiGet = (u, p, timeout = 5000) => fetchJson(`${unifiBase(u)}/${p}`, { headers: { 'X-API-Key': u.apiKey, Accept: 'application/json' } }, timeout);
+// The Network app can be slow to answer the first API call after a restart or a new key,
+// so allow 15s and retry once on a timeout.
+async function unifiGet(u, p, timeout = 15000) {
+  const go = () => fetchJson(`${unifiBase(u)}/${p}`, { headers: { 'X-API-Key': u.apiKey, Accept: 'application/json' } }, timeout);
+  try { return await go(); } catch (e) {
+    if (e.name !== 'AbortError' && !/aborted/i.test(e.message)) throw e;
+    try { return await go(); } catch (e2) {
+      throw /aborted/i.test(e2.message) ? new Error(`no answer from UniFi within ${timeout / 1000}s`) : e2;
+    }
+  }
+}
 
 // A UniFi OS console answers /api/system without auth with its model and name.
 async function findUnifi(host) {
@@ -663,6 +673,13 @@ async function listAll(u, path, max = 1000) {
 
 const isGateway = (d, host) => d.ipAddress === host || (d.features || []).some((f) => /gateway|routing/i.test(f)) || /^(UD|UX|UCG|USG|UXG|EFG)/i.test(d.model || '');
 
+let unifiCache = null, unifiBusy = false, unifiAt = 0;
+async function refreshUnifi(force) {
+  if (unifiBusy || (!force && Date.now() - unifiAt < 10000)) return;
+  unifiBusy = true;
+  try { unifiCache = await settle(unifiStatus()); unifiAt = Date.now(); } finally { unifiBusy = false; }
+}
+
 async function unifiStatus() {
   const u = store.unifi || {};
   if (!u.host || !u.apiKey) return null;
@@ -672,7 +689,7 @@ async function unifiStatus() {
     if (!u.siteId) throw new Error('No UniFi site found');
     const site = `sites/${u.siteId}`;
     const [devices, clients] = await Promise.all([listAll(u, `${site}/devices`), settle(listAll(u, `${site}/clients`, 2000))]);
-    const stats = await Promise.all(devices.map((d) => settle(unifiGet(u, `${site}/devices/${d.id}/statistics/latest`, 4000))));
+    const stats = await Promise.all(devices.map((d) => settle(unifiGet(u, `${site}/devices/${d.id}/statistics/latest`, 12000))));
     out.devices = devices.map((d, i) => {
       const st = stats[i] || {};
       return {
@@ -725,8 +742,8 @@ const server = http.createServer(async (req, res) => {
         try { host = new URL(plexCfg().url).hostname; } catch {}
         (out.find((x) => x.host === host) || out[0]).plex = plex;
       }
-      const net = await settle(unifiStatus());
-      return send(res, 200, { time: Date.now(), servers: out, unifi: net });
+      refreshUnifi(); // runs in the background; a slow console never holds up the page
+      return send(res, 200, { time: Date.now(), servers: out, unifi: unifiCache });
     }
     if (route === 'GET /api/apps') return send(res, 200, { apps: appsPayload(), servers: store.servers.map(publicServer), interval: cfg.checkInterval });
 
@@ -754,6 +771,7 @@ const server = http.createServer(async (req, res) => {
       if (u.host) { const f = await findUnifi(u.host); if (f) { u.model = f.model; u.name = f.name; } }
       store.unifi = u;
       saveStore();
+      unifiCache = null; refreshUnifi(true);
       return send(res, 200, { host: u.host || '', hasKey: !!u.apiKey, model: u.model || null, name: u.name || null });
     }
     if (route === 'GET /api/plex') {
@@ -915,6 +933,7 @@ const server = http.createServer(async (req, res) => {
 
 loadStore();
 checkAll();
+refreshUnifi(true);
 setInterval(checkAll, cfg.checkInterval);
 
 server.listen(cfg.port, () => {
