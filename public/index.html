@@ -345,6 +345,22 @@
   @media (max-width: 640px) { .plex-row .srv-fields { grid-template-columns: 1fr; } }
   .plex-row code { font: 12px var(--mono); color: var(--accent); background: var(--tint-2); padding: 1px 5px; border-radius: 4px; }
   .unifi-row { --accent: #1e88e5; margin-top: 12px; }
+  .dup-row { --accent: #2fa4e7; margin-top: 12px; }
+  .dup-row .srv-fields { grid-template-columns: 1fr 1.2fr 1fr; }
+  @media (max-width: 640px) { .dup-row .srv-fields { grid-template-columns: 1fr; } }
+  .bk-list { display: grid; gap: 6px; }
+  .bk-row { display: grid; grid-template-columns: 22px 1fr auto; gap: 10px; align-items: start; padding: 10px 12px; border: 1px solid var(--line-soft); border-radius: 10px; background: var(--tint); }
+  .bk-ic { font: 700 14px/20px var(--sans); text-align: center; }
+  .bk-ic.ok { color: var(--ok); } .bk-ic.warning { color: var(--warn); } .bk-ic.error { color: var(--bad); } .bk-ic.running { color: var(--accent); } .bk-ic.never { color: var(--faint); }
+  .bk-name { font-weight: 600; font-size: 13.5px; }
+  .bk-sub { font: 11.5px var(--mono); color: var(--muted); margin-top: 2px; }
+  .bk-msg { font-size: 12px; margin-top: 4px; color: var(--warn); }
+  .bk-row.error .bk-msg { color: var(--bad); }
+  .bk-next { font: 11.5px var(--mono); color: var(--muted); text-align: right; white-space: nowrap; }
+  .bk-row .bar { margin-top: 6px; }
+  .bk-open { margin-left: 8px; color: var(--faint); text-decoration: none; font-family: var(--mono); letter-spacing: 0; }
+  .bk-open:hover { color: var(--text); }
+  [data-theme="retro"] :is(.bk-sub, .bk-next, .bk-msg) { font-size-adjust: ex-height 0.64; }
   .unifi-row .srv-fields { grid-template-columns: 1fr 1fr; }
   @media (max-width: 640px) { .unifi-row .srv-fields { grid-template-columns: 1fr; } }
   .unifi-row code { font: 12px var(--mono); color: var(--accent); background: var(--tint-2); padding: 1px 5px; border-radius: 4px; }
@@ -420,7 +436,7 @@
       <button class="btn" id="srvAdd">+ Add server</button>
       <button class="btn" id="srvClose">✕</button>
     </div>
-    <div class="dlg-b"><div class="srv-rows" id="srvRows"></div><div id="dlgPlex"></div><div id="dlgUnifi"></div></div>
+    <div class="dlg-b"><div class="srv-rows" id="srvRows"></div><div id="dlgPlex"></div><div id="dlgUnifi"></div><div id="dlgDup"></div></div>
   </dialog>
 
   <dialog id="scanDlg">
@@ -699,10 +715,70 @@ function renderUnifi(n) {
   </section>`;
 }
 
+// "3h ago" / "in 21h"
+function rel(t) {
+  if (!t) return '—';
+  const d = Math.round((t - Date.now()) / 1000), a = Math.abs(d);
+  const v = a < 90 ? `${a}s` : a < 5400 ? `${Math.round(a / 60)}m` : a < 129600 ? `${Math.round(a / 3600)}h` : `${Math.round(a / 86400)}d`;
+  return d < 0 ? `${v} ago` : `in ${v}`;
+}
+const BK_ICON = { ok: '✓', warning: '⚠', error: '✕', running: '⟳', never: '•' };
+
+function bkRow(j) {
+  const sub = [j.lastFinished ? rel(j.lastFinished) : 'never run', j.duration ? dur(j.duration) : '', j.size ? bytes(j.size) : '', j.versions ? `${j.versions} versions` : ''].filter(Boolean).join(' · ');
+  const prog = j.progress ? `<div class="bar"><i style="width:${(j.progress.pct ?? 0).toFixed(0)}%"></i></div><div class="bk-sub">${esc((j.progress.phase || '').replace(/^Backup_/, '').replace(/([a-z])([A-Z])/g, '$1 $2'))}${j.progress.pct != null ? ` · ${Math.round(j.progress.pct)}%` : ''}</div>` : '';
+  return `<div class="bk-row ${j.status}">
+    <span class="bk-ic ${j.status}" title="${j.status}">${BK_ICON[j.status] || '•'}</span>
+    <div><div class="bk-name">${esc(j.name)}</div><div class="bk-sub">${esc(sub)}</div>${j.message ? `<div class="bk-msg">${esc(j.message)}</div>` : ''}${prog}</div>
+    <div class="bk-next">${j.status === 'running' ? 'running now' : j.nextRun ? 'next ' + rel(j.nextRun) : 'no schedule'}</div>
+  </div>`;
+}
+
+function renderBackups(list, pending) {
+  if (!list?.length) {
+    if (!pending) return '';
+    return `<section class="server backups ${collapsed['card:backups'] ? 'min' : ''}" data-card="backups" data-id="backups" style="--accent:#2fa4e7">
+      <div class="s-head">${'<div class="card-ctl"><span class="drag" title="Drag to move">⠿</span><button class="min-btn" data-min="backups" title="Minimize / expand">▾</button></div>'}
+        <div class="glyph">⟲</div><div class="s-title"><h2>Backups <span class="badge">Duplicati</span></h2>
+        <div class="sub">Found Duplicati on ${pending} server${pending > 1 ? 's' : ''}</div></div></div>
+      <div class="setup"><b>See your backup status here.</b> Open <a href="#" data-open-servers style="color:var(--accent)">⚙ Servers</a> → Duplicati and enter each instance's web UI password.</div>
+    </section>`;
+  }
+  const jobs = list.flatMap((i) => i.jobs);
+  const count = (st) => jobs.filter((j) => j.status === st).length;
+  const ok = count('ok'), bad = count('error'), warn = count('warning'), run = count('running');
+  const last = jobs.filter((j) => j.lastFinished).sort((a, b) => b.lastFinished - a.lastFinished)[0];
+  const next = jobs.filter((j) => j.nextRun && j.nextRun > Date.now()).sort((a, b) => a.nextRun - b.nextRun)[0];
+  const size = jobs.reduce((t, j) => t + (j.size || 0), 0);
+  const healthy = bad === 0 && list.every((i) => i.online && !i.errors.length);
+  const summaryTxt = [`${jobs.length} job${jobs.length === 1 ? '' : 's'}`, bad ? `${bad} failed` : '', warn ? `${warn} warning${warn > 1 ? 's' : ''}` : '', run ? `${run} running` : '', !bad && !warn ? 'all OK' : ''].filter(Boolean).join(' · ');
+  const stats = [
+    stat(jobs.length ? ((ok + run) / jobs.length) * 100 : null, 'Healthy jobs', `${ok + run}/${jobs.length}`, [bad ? `${bad} failed` : '', warn ? `${warn} warning${warn > 1 ? 's' : ''}` : ''].filter(Boolean).join(' · ') || 'no problems'),
+    stat(null, 'Last backup', last ? rel(last.lastFinished) : '—', last ? esc(last.name) : '', 'LAST'),
+    stat(null, 'Next backup', next ? rel(next.nextRun) : '—', next ? esc(next.name) : '', 'NEXT'),
+    stat(null, 'Backed up', size ? bytes(size) : '—', `${list.length} instance${list.length > 1 ? 's' : ''}`, 'SIZE'),
+  ].join('');
+  const sections = list.map((i) => `<h3>${esc(i.name)} <span class="count">${i.jobs.length} job${i.jobs.length === 1 ? '' : 's'}</span><a class="bk-open" href="${esc(i.url)}" target="_blank" rel="noopener" title="Open Duplicati">↗</a></h3>
+    <div class="bk-list">${i.jobs.map(bkRow).join('') || (i.errors.length ? '' : '<div class="empty">No backup jobs yet.</div>')}${i.errors.length ? `<div class="errors">${i.errors.map(esc).join('<br>')}</div>` : ''}</div>`).join('');
+  return `<section class="server backups ${collapsed['card:backups'] ? 'min' : ''}" data-card="backups" data-id="backups" style="--accent:${healthy ? '#2fa4e7' : 'var(--bad)'}">
+    <div class="s-head">
+      <div class="card-ctl"><span class="drag" title="Drag to move">⠿</span><button class="min-btn" data-min="backups" title="Minimize / expand">▾</button></div>
+      <div class="glyph">⟲</div>
+      <div class="s-title">
+        <h2>Backups <span class="badge">Duplicati</span></h2>
+        <div class="sub"><span class="dot ${bad ? 'bad' : warn ? 'warn' : 'ok'}" style="display:inline-block;vertical-align:middle;margin-right:6px"></span>${esc(summaryTxt)}</div>
+      </div>
+    </div>
+    <div class="stats">${stats}</div>
+    ${sections}
+  </section>`;
+}
+
 function paintServers() {
   if (!lastStatus) return;
   if (dragId) { paintPending = true; return; } // never rebuild cards under a drag
-  $('#grid').innerHTML = lastStatus.servers.map(render).join('') + (lastStatus.unifi ? renderUnifi(lastStatus.unifi) : '');
+  $('#grid').innerHTML = lastStatus.servers.map(render).join('') + (lastStatus.unifi ? renderUnifi(lastStatus.unifi) : '')
+    + renderBackups(lastStatus.backups, lastStatus.backupsPending);
   document.querySelectorAll('#grid .server').forEach(makeCollapsible);
   applyOrder();
 }
@@ -1200,6 +1276,50 @@ $('#setupDone').onclick = async () => {
   finally { $('#setupDone').disabled = false; }
 };
 
+// duplicati (optional)
+function dupRow(d, i) {
+  return `<div class="srv-row dup-row" data-dup-id="${esc(d.id || '')}" data-dup-url="${esc(d.url)}">
+    <div class="plex-head"><img src="${ICONS}/svg/duplicati.svg" alt="" onerror="this.remove()"><b>Duplicati</b><span>${d.id ? 'Backup status on the Backups card' : 'Found — enter its password to show backup status'}</span></div>
+    <div class="srv-fields">
+      <label>Name<input name="dupName" value="${esc(d.name || '')}" placeholder="e.g. Tower" autocomplete="off"></label>
+      <label>Address<input name="dupUrl" value="${esc(d.url || '')}" placeholder="http://192.168.1.10:8200" spellcheck="false" autocomplete="off"></label>
+      <label>Web UI password<input name="dupPw" type="password" autocomplete="off" placeholder="${d.hasPassword ? '•••••••• saved' : 'Duplicati login password'}"></label>
+    </div>
+    <div class="srv-status" data-dup-status>${d.hasPassword ? '<span class="ok">✓ Connected</span>' : ''}</div>
+    <div class="srv-foot"><span class="spacer"></span>${d.id ? '<button class="btn danger" data-dup-remove>Remove</button>' : ''}<button class="btn primary" data-dup-save>Save</button></div>
+  </div>`;
+}
+
+async function renderDupSettings() {
+  const r = await api('GET', '/api/duplicati').catch(() => ({ instances: [], detected: [] }));
+  const rows = [...r.instances, ...r.detected];
+  $('#dlgDup').innerHTML = rows.map(dupRow).join('')
+    + `<div class="setup-actions" style="margin-top:10px"><button class="btn" data-dup-add>+ Add Duplicati manually</button></div>`;
+}
+
+$('#dlgDup').addEventListener('click', async (e) => {
+  if (e.target.closest('[data-dup-add]')) {
+    e.target.closest('.setup-actions').insertAdjacentHTML('beforebegin', dupRow({ url: '', name: '' }));
+    return;
+  }
+  const row = e.target.closest('.dup-row'); if (!row) return;
+  const st = row.querySelector('[data-dup-status]');
+  if (e.target.closest('[data-dup-save]')) {
+    st.innerHTML = '<span>Signing in to Duplicati…</span>';
+    try {
+      const r = await api('PUT', '/api/duplicati', { url: field(row, 'dupUrl').value.trim(), name: field(row, 'dupName').value.trim(), password: field(row, 'dupPw').value || undefined });
+      row.dataset.dupId = r.id;
+      field(row, 'dupPw').value = '';
+      field(row, 'dupPw').placeholder = '•••••••• saved';
+      st.innerHTML = '<span class="ok">✓ Connected — backups will appear on the Backups card</span>';
+    } catch (err) { st.innerHTML = `<span class="bad">✕ ${esc(err.message)}</span>`; }
+  }
+  if (e.target.closest('[data-dup-remove]')) {
+    await api('DELETE', `/api/duplicati/${encodeURIComponent(row.dataset.dupId)}`);
+    renderDupSettings();
+  }
+});
+
 // unifi (optional)
 const UNIFI_HELP = 'In <b>UniFi Network</b> go to <b>Settings → Control Plane → Integrations</b> and click <b>Create API Key</b>. Copy it — UniFi only shows it once.';
 
@@ -1294,7 +1414,6 @@ $('#dlgPlex').addEventListener('click', async (e) => {
   if (e.target.closest('[data-plex-clear]')) {
     await api('PUT', '/api/plex', { url: field(box, 'plexUrl').value.trim(), clearToken: true });
     renderPlex('#dlgPlex', true);
-  renderUnifiSettings('#dlgUnifi', true);
   }
 });
 
@@ -1304,6 +1423,7 @@ async function openServers(addNew) {
   $('#srvRows').innerHTML = servers.map((x, i) => srvRow(x, i, true)).join('');
   renderPlex('#dlgPlex', true);
   renderUnifiSettings('#dlgUnifi', true);
+  renderDupSettings();
   if (addNew || !servers.length) addServerRow();
   $('#srvDlg').showModal();
 }

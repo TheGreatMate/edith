@@ -65,12 +65,12 @@ const slug = (s) => String(s).toLowerCase().replace(/\(.*?\)/g, '').trim().repla
 const dataDir = env.DATA_DIR || path.join(__dirname, 'data');
 const storeFile = path.join(dataDir, 'config.json');
 const legacyFile = path.join(dataDir, 'apps.json');
-let store = { servers: [], apps: [], ignored: [], plex: {}, prefs: {}, unifi: {} };
+let store = { servers: [], apps: [], ignored: [], plex: {}, prefs: {}, unifi: {}, duplicati: [] };
 
 function loadStore() {
   try { fs.mkdirSync(dataDir, { recursive: true }); } catch {}
   const file = fs.existsSync(storeFile) ? storeFile : fs.existsSync(legacyFile) ? legacyFile : null;
-  if (file) store = { servers: [], apps: [], ignored: [], plex: {}, prefs: {}, unifi: {}, ...JSON.parse(fs.readFileSync(file, 'utf8')) };
+  if (file) store = { servers: [], apps: [], ignored: [], plex: {}, prefs: {}, unifi: {}, duplicati: [], ...JSON.parse(fs.readFileSync(file, 'utf8')) };
   // Optional: preconfigure servers via environment on first run.
   if (!store.servers.length) {
     if (env.UNRAID_HOST) store.servers.push({ id: 'unraid', type: 'unraid', name: env.UNRAID_NAME || 'Unraid', host: env.UNRAID_HOST, url: env.UNRAID_URL || '', apiKey: env.UNRAID_API_KEY || '' });
@@ -673,6 +673,103 @@ async function listAll(u, path, max = 1000) {
 
 const isGateway = (d, host) => d.ipAddress === host || (d.features || []).some((f) => /gateway|routing/i.test(f)) || /^(UD|UX|UCG|USG|UXG|EFG)/i.test(d.model || '');
 
+// --- Duplicati (2.1+ REST API, signs in with the web UI password) ----------------
+const dupTokens = new Map(); // url -> { token, at }
+const origin = (u) => { try { return new URL(u).origin; } catch { return null; } };
+
+async function dupLogin(inst) {
+  const r = await fetchJson(`${inst.url}/api/v1/auth/login`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ Password: inst.password, RememberMe: false }),
+  }, 8000);
+  if (!r?.AccessToken) throw new Error('Duplicati did not return a token');
+  dupTokens.set(inst.url, { token: r.AccessToken, at: Date.now() });
+  return r.AccessToken;
+}
+
+async function dupGet(inst, p) {
+  let t = dupTokens.get(inst.url);
+  if (!t || Date.now() - t.at > 4 * 60000) t = { token: await dupLogin(inst) }; // tokens are short-lived
+  const go = (token) => fetchJson(`${inst.url}/api/v1/${p}`, { headers: { Authorization: `Bearer ${token}` } }, 8000);
+  try { return await go(t.token); } catch (e) {
+    if (!/HTTP 401/.test(e.message)) throw e;
+    return go(await dupLogin(inst));
+  }
+}
+
+// Duplicati serialises dates as "20241015T020000Z".
+function dupDate(v) {
+  if (!v) return null;
+  const m = String(v).match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/);
+  const t = m ? Date.UTC(+m[1], m[2] - 1, +m[3], +m[4], +m[5], +m[6]) : Date.parse(v);
+  return Number.isFinite(t) && t > 0 ? t : null;
+}
+const dupDuration = (v) => { // "00:12:34.5678" or "1.02:03:04"
+  const m = String(v || '').match(/^(?:(\d+)\.)?(\d+):(\d+):(\d+)/);
+  return m ? (+(m[1] || 0)) * 86400 + m[2] * 3600 + m[3] * 60 + +m[4] : null;
+};
+
+// Duplicati instances EDITH can see among the tracked apps but that aren't set up yet.
+function detectDuplicati() {
+  const have = new Set((store.duplicati || []).map((d) => d.url));
+  const out = new Map();
+  for (const a of allApps()) {
+    if (!/duplicati/i.test(`${a.name} ${a.image || ''}`) || !a.link) continue;
+    const url = origin(a.link);
+    if (!url || have.has(url) || out.has(url)) continue;
+    const srv = store.servers.find((x) => x.id === a.server);
+    out.set(url, { url, name: srv ? `${srv.name}` : a.name });
+  }
+  return [...out.values()];
+}
+
+async function duplicatiStatus(inst) {
+  const out = { id: inst.id, name: inst.name, url: inst.url, online: true, jobs: [], errors: [] };
+  try {
+    const [backups, state, notes, progress] = await Promise.all([
+      dupGet(inst, 'backups'), settle(dupGet(inst, 'serverstate')), settle(dupGet(inst, 'notifications')), settle(dupGet(inst, 'progressstate')),
+    ]);
+    const activeId = state?.ActiveTask?.Item2 ?? state?.ActiveTask?.BackupID ?? null;
+    const proposed = new Map((state?.ProposedSchedule || []).map((p) => [String(p.Item1 ?? p.BackupID), dupDate(p.Item2 ?? p.Time)]));
+    out.jobs = (Array.isArray(backups) ? backups : []).filter((b) => !b.Backup?.IsTemporary).map((b) => {
+      const bk = b.Backup || {}, md = bk.Metadata || {}, id = String(bk.ID);
+      const started = dupDate(md.LastBackupStarted), finished = dupDate(md.LastBackupFinished) || dupDate(md.LastBackupDate);
+      const errAt = dupDate(md.LastErrorDate);
+      // the latest warning/error notification for this job since it last started
+      const note = (Array.isArray(notes) ? notes : []).filter((n) => String(n.BackupID) === id && /warning|error/i.test(n.Type))
+        .map((n) => ({ ...n, t: dupDate(n.Timestamp) })).filter((n) => !started || (n.t && n.t >= started - 60000))
+        .sort((x, y) => (y.t || 0) - (x.t || 0))[0];
+      let status = finished ? 'ok' : 'never', message = null;
+      if (errAt && (!finished || errAt > finished)) { status = 'error'; message = md.LastErrorMessage || 'Last run failed'; }
+      else if (note) { status = /error/i.test(note.Type) ? 'error' : 'warning'; message = note.Message || note.Title; }
+      const running = activeId != null && String(activeId) === id;
+      if (running) status = 'running';
+      return {
+        id, name: bk.Name, status, message,
+        lastFinished: finished, lastStarted: started, duration: dupDuration(md.LastBackupDuration),
+        nextRun: proposed.get(id) || dupDate(b.Schedule?.Time) || null,
+        size: +md.TargetFilesSize || null, sourceSize: +md.SourceFilesSize || null, versions: +md.BackupListCount || null,
+        progress: running && progress ? { phase: progress.Phase, pct: progress.OverallProgress != null ? progress.OverallProgress * 100 : null } : null,
+      };
+    }).sort((a, b) => a.name.localeCompare(b.name));
+  } catch (e) {
+    out.online = (await settle(probeHttp(inst.url, 3000))) != null;
+    out.errors.push(/401|log in/i.test(e.message) ? 'Duplicati rejected the password — update it in ⚙ Servers' : e.message);
+  }
+  return out;
+}
+
+let dupCache = null, dupBusy = false, dupAt = 0;
+async function refreshDuplicati(force) {
+  if (dupBusy || (!force && Date.now() - dupAt < 30000)) return;
+  dupBusy = true;
+  try {
+    const list = store.duplicati || [];
+    dupCache = list.length ? await Promise.all(list.map((d) => duplicatiStatus(d))) : null;
+    dupAt = Date.now();
+  } finally { dupBusy = false; }
+}
+
 let unifiCache = null, unifiBusy = false, unifiAt = 0;
 async function refreshUnifi(force) {
   if (unifiBusy || (!force && Date.now() - unifiAt < 10000)) return;
@@ -742,12 +839,41 @@ const server = http.createServer(async (req, res) => {
         try { host = new URL(plexCfg().url).hostname; } catch {}
         (out.find((x) => x.host === host) || out[0]).plex = plex;
       }
-      refreshUnifi(); // runs in the background; a slow console never holds up the page
-      return send(res, 200, { time: Date.now(), servers: out, unifi: unifiCache });
+      refreshUnifi(); refreshDuplicati(); // run in the background; a slow service never holds up the page
+      const pending = detectDuplicati().length;
+      return send(res, 200, { time: Date.now(), servers: out, unifi: unifiCache, backups: dupCache, backupsPending: pending });
     }
     if (route === 'GET /api/apps') return send(res, 200, { apps: appsPayload(), servers: store.servers.map(publicServer), interval: cfg.checkInterval });
 
     // plex
+    if (route === 'GET /api/duplicati') {
+      return send(res, 200, {
+        instances: (store.duplicati || []).map(({ password, ...d }) => ({ ...d, hasPassword: !!password })),
+        detected: detectDuplicati(),
+      });
+    }
+    if (route === 'PUT /api/duplicati') {
+      const b = await readBody(req);
+      const url = origin(String(b.url || '').trim().replace(/^(?!https?:\/\/)/i, 'http://'));
+      if (!url) return send(res, 400, { error: 'Enter the Duplicati address, e.g. http://192.168.1.10:8200' });
+      const list = (store.duplicati ||= []);
+      let inst = list.find((d) => d.url === url);
+      const draft = { id: inst?.id || slug(url.replace(/^https?:\/\//, '')), url, name: String(b.name || inst?.name || 'Duplicati').slice(0, 40), password: b.password || inst?.password || '' };
+      if (!draft.password) return send(res, 400, { error: 'Enter the Duplicati password' });
+      try { dupTokens.delete(url); await dupLogin(draft); }
+      catch (e) { return send(res, 400, { error: /401/.test(e.message) ? 'Duplicati rejected the password' : `Couldn't reach Duplicati: ${e.message}` }); }
+      if (inst) Object.assign(inst, draft); else list.push(draft);
+      saveStore();
+      refreshDuplicati(true);
+      return send(res, 200, { id: draft.id, name: draft.name, url, hasPassword: true });
+    }
+    if (req.method === 'DELETE' && url.pathname.startsWith('/api/duplicati/')) {
+      const id = idFrom('/api/duplicati/');
+      store.duplicati = (store.duplicati || []).filter((d) => d.id !== id);
+      saveStore();
+      refreshDuplicati(true);
+      return send(res, 200, { ok: true });
+    }
     if (route === 'GET /api/unifi') {
       const u = store.unifi || {};
       const detected = u.host ? null : await detectUnifi();
@@ -772,6 +898,7 @@ const server = http.createServer(async (req, res) => {
       store.unifi = u;
       saveStore();
       unifiCache = null; refreshUnifi(true);
+refreshDuplicati(true);
       return send(res, 200, { host: u.host || '', hasKey: !!u.apiKey, model: u.model || null, name: u.name || null });
     }
     if (route === 'GET /api/plex') {
@@ -934,6 +1061,7 @@ const server = http.createServer(async (req, res) => {
 loadStore();
 checkAll();
 refreshUnifi(true);
+refreshDuplicati(true);
 setInterval(checkAll, cfg.checkInterval);
 
 server.listen(cfg.port, () => {

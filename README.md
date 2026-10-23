@@ -34,6 +34,10 @@ Keys are checked when you save them, stored only in `data/config.json` on the ma
 
 Add your UniFi console (Dream Machine / Dream Router / Cloud Gateway) on the setup screen or in **⚙ Servers** → UniFi to get a **Network** card: internet throughput, client counts (wired / Wi-Fi), gateway CPU and memory, and every UniFi device with its status, uptime and load. EDITH finds the console automatically; create the key in **UniFi Network → Settings → Control Plane → Integrations → Create API Key**. It uses UniFi's official local Integration API — no username or password.
 
+### Duplicati backups (optional)
+
+EDITH spots Duplicati containers/apps on your servers and lists them in **⚙ Servers** → Duplicati. Enter each instance's web UI password (Duplicati 2.1+ has no API keys) and a **Backups** card shows every job: last run, duration, size, versions, next scheduled run, live progress while it runs, and ✓ / ⚠ / ✕ with Duplicati's own warning or error message. Passwords are stored with your other keys and never sent to the browser.
+
 ### Plex token
 
 Open Plex Web (`http://<server>:32400/web`) and sign in, press **F12** → **Console**, run `localStorage.myPlexAccessToken` and copy the value without the quotes. Paste it on the setup screen or in **⚙ Servers** → Plex. The token is tested when you save it and stored with your API keys.
