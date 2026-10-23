@@ -453,7 +453,7 @@
 
   <footer>
     <span id="updated">Connecting…</span>
-    <span><button id="refresh">Refresh</button></span>
+    <span><button id="resetLayout" title="Put the cards back in the default order and expand everything">Reset layout</button> <button id="refresh">Refresh</button></span>
   </footer>
 </div>
 
@@ -789,9 +789,18 @@ try { cardOrder = JSON.parse(localStorage.getItem('cardOrder') || '[]'); } catch
 const cardEls = () => [...document.querySelectorAll('#cards [data-card]')];
 
 // CSS "order" places the cards, so repainting a card never loses its spot.
+// Default layout: backups and network on top, then servers (in setup order), apps at the bottom.
+const defaultRank = (id) => (id === 'backups' ? 0 : id === 'unifi' ? 1 : id === 'apps' ? 3 : 2);
+
 function applyOrder() {
   const ids = cardEls().map((e) => e.dataset.card);
-  const merged = [...cardOrder.filter((id) => ids.includes(id)), ...ids.filter((id) => !cardOrder.includes(id))];
+  const byDefault = (list) => list.map((id, i) => [id, i]).sort((a, b) => defaultRank(a[0]) - defaultRank(b[0]) || a[1] - b[1]).map((x) => x[0]);
+  // Saved order wins; cards it doesn't know yet (e.g. a newly added service) slot in where the default puts them.
+  const merged = cardOrder.filter((id) => ids.includes(id));
+  for (const id of byDefault(ids.filter((x) => !merged.includes(x)))) {
+    const at = merged.findIndex((m) => defaultRank(m) > defaultRank(id));
+    merged.splice(at === -1 ? merged.length : at, 0, id);
+  }
   cardEls().forEach((e) => { e.style.order = merged.indexOf(e.dataset.card); });
   return merged;
 }
@@ -889,7 +898,21 @@ function tick() {
 function demo() {
   const r = (a, b) => a + Math.random() * (b - a);
   const T = 1e12;
-  return { time: Date.now(), servers: [
+  const H = 36e5, now = Date.now();
+  const unifi = { id: 'unifi', name: 'Home Router', model: 'UDR7', host: '10.0.0.1', ui: '#', online: true, errors: [],
+    clients: { total: 42, wired: 11, wireless: 31 },
+    devices: [
+      { name: 'Home Router', model: 'UDR7', ip: '10.0.0.1', online: true, gateway: true, uptime: 864000, cpu: r(5, 30), mem: 58, rx: r(2e7, 3e8), tx: r(1e6, 2e7) },
+      { name: 'Office Switch', model: 'USW-Lite-8-PoE', ip: '10.0.0.3', online: true, uptime: 86400, cpu: 4, mem: 31, rx: 2.4e6, tx: 8e5 },
+      { name: 'Garage AP', model: 'U7-Pro', ip: '10.0.0.4', online: false, state: 'OFFLINE' },
+    ] };
+  unifi.gateway = unifi.devices[0];
+  const job = (id, name, status, last, next, size, extra = {}) => ({ id, name, status, lastFinished: now - last * H, duration: 754, nextRun: now + next * H, size, versions: 12, ...extra });
+  const backups = [{ id: 'tower', name: 'Tower', url: '#', online: true, errors: [], jobs: [
+    job('1', 'Appdata', 'ok', 5, 19, 5e11), job('2', 'Photos to B2', 'ok', 3, 21, 2.5e12),
+    job('3', 'Documents', 'warning', 26, 2, 7.5e11, { message: '2 files were locked and skipped' }),
+  ] }];
+  return { time: Date.now(), unifi, backups, servers: [
     { id: 'unraid', type: 'unraid', name: 'Tower', os: 'Unraid', version: '7.2.0', host: '10.0.0.10', ui: '#', online: true, configured: true, latency: 1, uptime: 1234567,
       cpu: { usage: r(5, 40), cores: 16, threads: 32, power: 142, sockets: [0, 1].map((i) => ({ model: 'Intel Xeon E5-2667 v4', cores: 8, threads: 16, usage: r(5, 50), temp: 48 + i * 6.4, power: 68 + i * 6 })) }, memory: { total: 64e9, used: r(20e9, 40e9) },
       array: { state: 'STARTED', total: 40 * T, used: 26.4 * T, free: 13.6 * T },
@@ -1466,6 +1489,14 @@ document.addEventListener('click', (e) => {
 });
 
 $('#refresh').onclick = () => { load(); loadApps(); };
+$('#resetLayout').onclick = () => {
+  cardOrder = [];
+  for (const k of Object.keys(collapsed)) if (k.startsWith('card:')) delete collapsed[k];
+  try { localStorage.removeItem('cardOrder'); } catch {}
+  saveCollapsed();
+  $('#appsPanel').classList.remove('collapsed');
+  paintServers(); applyOrder();
+};
 tick(); setInterval(tick, 1000);
 (async () => {
   if (!DEMO) {
