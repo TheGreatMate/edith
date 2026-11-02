@@ -752,11 +752,32 @@ async function duplicatiStatus(inst) {
         progress: running && progress ? { phase: progress.Phase, pct: progress.OverallProgress != null ? progress.OverallProgress * 100 : null } : null,
       };
     }).sort((a, b) => a.name.localeCompare(b.name));
+    await Promise.all(out.jobs.filter((j) => j.status === 'warning' || j.status === 'error').map(async (j) => { j.details = await dupRunDetails(inst, j); }));
   } catch (e) {
     out.online = (await settle(probeHttp(inst.url, 3000))) != null;
     out.errors.push(/401|log in/i.test(e.message) ? 'Duplicati rejected the password — update it in ⚙ Servers' : e.message);
   }
   return out;
+}
+
+// Warning / error lines of a job's last run, from Duplicati's log (cached until the job runs again).
+const dupDetails = new Map(); // "url|id|finished" -> [lines]
+async function dupRunDetails(inst, job) {
+  const key = `${inst.url}|${job.id}|${job.lastFinished}`;
+  if (dupDetails.has(key)) return dupDetails.get(key);
+  const log = await settle(dupGet(inst, `backup/${encodeURIComponent(job.id)}/log?pagesize=10`));
+  let lines = null;
+  for (const entry of Array.isArray(log) ? log : []) {
+    let m; try { m = JSON.parse(entry.Message); } catch { continue; }
+    if (!m || !('ParsedResult' in m || 'Warnings' in m || 'Errors' in m)) continue;
+    const pick = (arr) => (Array.isArray(arr) ? arr : []).map(String);
+    lines = [...pick(m.Errors), ...pick(m.Warnings)].slice(0, 50)
+      // "2026-11-02 03:00:12 -05 - [Warning-Duplicati.…-FileAccessError]: text" -> "FileAccessError: text"
+      .map((l) => l.replace(/^\S+ \S+ \S+ - \[(?:Warning|Error)-[^\]]*-(\w+)\]:\s*/, '$1: '));
+    break; // newest result first
+  }
+  if (lines) { dupDetails.set(key, lines); if (dupDetails.size > 200) dupDetails.delete(dupDetails.keys().next().value); }
+  return lines;
 }
 
 let dupCache = null, dupBusy = false, dupAt = 0;

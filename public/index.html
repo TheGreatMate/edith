@@ -356,6 +356,8 @@
   .bk-sub { font: 11.5px var(--mono); color: var(--muted); margin-top: 2px; }
   .bk-msg { font-size: 12px; margin-top: 4px; color: var(--warn); }
   .bk-row.error .bk-msg { color: var(--bad); }
+  .bk-details summary { margin-top: 4px; font-size: 12px; color: var(--muted); }
+  .bk-details ul { margin: 6px 0 0; padding-left: 18px; font: 11.5px/1.5 var(--mono); color: var(--muted); max-height: 220px; overflow: auto; word-break: break-word; }
   .bk-next { font: 11.5px var(--mono); color: var(--muted); text-align: right; white-space: nowrap; }
   .bk-row .bar { margin-top: 6px; }
   .bk-open { margin-left: 8px; color: var(--faint); text-decoration: none; font-family: var(--mono); letter-spacing: 0; }
@@ -729,7 +731,7 @@ function bkRow(j) {
   const prog = j.progress ? `<div class="bar"><i style="width:${(j.progress.pct ?? 0).toFixed(0)}%"></i></div><div class="bk-sub">${esc((j.progress.phase || '').replace(/^Backup_/, '').replace(/([a-z])([A-Z])/g, '$1 $2'))}${j.progress.pct != null ? ` · ${Math.round(j.progress.pct)}%` : ''}</div>` : '';
   return `<div class="bk-row ${j.status}">
     <span class="bk-ic ${j.status}" title="${j.status}">${BK_ICON[j.status] || '•'}</span>
-    <div><div class="bk-name">${esc(j.name)}</div><div class="bk-sub">${esc(sub)}</div>${j.message ? `<div class="bk-msg">${esc(j.message)}</div>` : ''}${prog}</div>
+    <div><div class="bk-name">${esc(j.name)}</div><div class="bk-sub">${esc(sub)}</div>${j.message ? `<div class="bk-msg">${esc(j.message)}</div>` : ''}${j.details?.length ? `<details class="bk-details"><summary>Show ${j.details.length} ${j.status === 'error' ? 'problem' : 'warning'}${j.details.length > 1 ? 's' : ''}</summary><ul>${j.details.map((l) => `<li>${esc(l)}</li>`).join('')}</ul></details>` : ''}${prog}</div>
     <div class="bk-next">${j.status === 'running' ? 'running now' : j.nextRun ? 'next ' + rel(j.nextRun) : 'no schedule'}</div>
   </div>`;
 }
